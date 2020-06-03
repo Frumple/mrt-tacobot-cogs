@@ -1,7 +1,7 @@
 from redbot.core import Config, commands, checks
 
 class Password(commands.Cog):
-  """Allows users to obtain ppasswords for accessing external services."""
+  """Allows users to obtain passwords for accessing external services."""
 
   def __init__(self):
     default_guild = {
