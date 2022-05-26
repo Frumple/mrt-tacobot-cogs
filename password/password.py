@@ -1,4 +1,5 @@
 from redbot.core import Config, commands, checks
+from discord.errors import Forbidden
 
 class Password(commands.Cog):
   """Allows users to obtain passwords for accessing external services."""
@@ -40,7 +41,11 @@ class Password(commands.Cog):
     async with self.config.guild(ctx.guild).entries() as entries:
       if name in entries:
         await ctx.send(f'{ctx.author.mention} has requested the password for `{name}`.')
-        await ctx.author.send(entries[name])
+        try:
+          await ctx.author.send(entries[name])
+        except Forbidden:
+          await ctx.send('Error: Unable to send password via direct message.')
+          await ctx.send('In your Privacy Settings for this Discord server, please make sure to "Allow direct messages from server members", and then try requesting the password again.')
       else:
         await ctx.send(f'No password exists for `{name}`.')
 
