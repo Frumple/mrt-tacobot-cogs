@@ -203,15 +203,15 @@ class Dynmap(commands.Cog):
         start_timeout_in_seconds = await self.config.guild(ctx.guild).start_timeout_in_seconds()
         end_timeout_in_seconds = await self.config.guild(ctx.guild).end_timeout_in_seconds()
 
+        if radius is None:
+          radius = default_radius
+
         embed_url = f'{web_host}/?worldname={world}&mapname={web_map}&zoom={web_zoom}&x={x}&y={web_y}&z={z}'
         embed = self.create_embed(ctx, embed_url, radius, x, z)
         status_message = await ctx.send(embed = embed)
 
         if x > max_dimension or x < -max_dimension or z > max_dimension or z < -max_dimension:
           raise DynmapError(f'X and Z coordinates must be between `-{max_dimension}` and `{max_dimension}`.')
-
-        if radius is None:
-          radius = default_radius
         if radius < min_radius or radius > max_radius:
           raise DynmapError(f'Radius must be between `{min_radius}` and `{max_radius}`.')
 
