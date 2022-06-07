@@ -1,10 +1,11 @@
 from aiohttp import ClientSession, ClientWebSocketResponse
 from asyncio import TimeoutError, wait_for
-from discord import Color, Embed, Message, User
+from discord import Color, Embed, Message, Reaction, User
 from enum import Enum
 from functools import reduce
 from http.client import HTTPException
 from redbot.core import Config, commands, checks
+from redbot.core.bot import Red
 from redbot.core.utils.mod import is_mod_or_superior
 from timeit import default_timer as timer
 from urllib.parse import urljoin
@@ -30,7 +31,9 @@ class Dynmap(commands.Cog):
   UNICODE_X = '\U0000274C'
   UNICODE_STOP_BUTTON = '\U000023F9'
 
-  def __init__(self):
+  def __init__(self, bot: Red):
+    self.bot = bot
+
     default_guild = {
       'pterodactyl_api_host': None,
       'pterodactyl_api_key': None,
@@ -45,7 +48,8 @@ class Dynmap(commands.Cog):
       'web_zoom': 6,
       'web_y': 64,
       'command_timeout_in_seconds': 10,
-      'finish_timeout_in_seconds': 600
+      'finish_timeout_in_seconds': 600,
+      'current_render': None
     }
     self.config = Config.get_conf(self, identifier=8373008182, force_registration=True)
     self.config.register_guild(**default_guild)
@@ -69,21 +73,21 @@ class Dynmap(commands.Cog):
     if ctx.invoked_subcommand is None:
       pass
 
-  @dynmap_config_pterodactyl.command(name="host")
+  @dynmap_config_pterodactyl.command(name='host')
   @checks.admin_or_permissions()
   async def dynmap_config_pterodactyl_host(self, ctx: commands.Context, host: str):
     """Sets the Pterodactyl API host URL."""
     await self.config.guild(ctx.guild).pterodactyl_api_host.set(host)
     await ctx.send(f'Pterodactyl API host URL has been set to `{host}`.')
 
-  @dynmap_config_pterodactyl.command(name="key")
+  @dynmap_config_pterodactyl.command(name='key')
   @checks.admin_or_permissions()
   async def dynmap_config_pterodactyl_key(self, ctx: commands.Context, key: str):
     """Sets the Pterodactyl API client key."""
     await self.config.guild(ctx.guild).pterodactyl_api_key.set(key)
     await ctx.send('Pterodactyl API client key has been set.')
 
-  @dynmap_config_pterodactyl.command(name="id")
+  @dynmap_config_pterodactyl.command(name='id')
   @checks.admin_or_permissions()
   async def dynmap_config_pterodactyl_id(self, ctx: commands.Context, id: str):
     """Sets the Pterodactyl server ID."""
@@ -97,35 +101,35 @@ class Dynmap(commands.Cog):
     if ctx.invoked_subcommand is None:
       pass
 
-  @dynmap_config_render.command(name="world")
+  @dynmap_config_render.command(name='world')
   @checks.admin_or_permissions()
   async def dynmap_config_render_world(self, ctx: commands.Context, world: str):
     """Sets the world to render."""
     await self.config.guild(ctx.guild).render_world.set(world)
     await ctx.send(f'Render world set to `{world}`.')
 
-  @dynmap_config_render.command(name="default_radius")
+  @dynmap_config_render.command(name='default_radius')
   @checks.admin_or_permissions()
   async def dynmap_config_render_default_radius(self, ctx: commands.Context, radius: int):
     """Sets the default render radius (when radius is not specified in the render command)."""
     await self.config.guild(ctx.guild).render_min_radius.set(radius)
     await ctx.send(f'Default render radius set to `{radius}`.')
 
-  @dynmap_config_render.command(name="min_radius")
+  @dynmap_config_render.command(name='min_radius')
   @checks.admin_or_permissions()
   async def dynmap_config_render_min_radius(self, ctx: commands.Context, radius: int):
     """Sets the minimum render radius."""
     await self.config.guild(ctx.guild).render_min_radius.set(radius)
     await ctx.send(f'Minimum render radius set to `{radius}`.')
 
-  @dynmap_config_render.command(name="max_radius")
+  @dynmap_config_render.command(name='max_radius')
   @checks.admin_or_permissions()
   async def dynmap_config_render_max_radius(self, ctx: commands.Context, radius: int):
     """Sets the maximum render radius."""
     await self.config.guild(ctx.guild).render_max_radius.set(radius)
     await ctx.send(f'Maximum render radius set to `{radius}`.')
 
-  @dynmap_config_render.command(name="dimension")
+  @dynmap_config_render.command(name='dimension')
   @checks.admin_or_permissions()
   async def dynmap_config_render_dimension(self, ctx: commands.Context, dimension: int):
     """Sets the maximum X and Z coordinate that can be specified for the center of the radius render."""
@@ -139,28 +143,28 @@ class Dynmap(commands.Cog):
     if ctx.invoked_subcommand is None:
       pass
 
-  @dynmap_config_web.command(name="host")
+  @dynmap_config_web.command(name='host')
   @checks.admin_or_permissions()
   async def dynmap_config_web_host(self, ctx: commands.Context, host: str):
     """Sets the dynmap host URL used in the embed link."""
     await self.config.guild(ctx.guild).web_host.set(host)
     await ctx.send(f'Dynmap host URL set to `{host}`.')
 
-  @dynmap_config_web.command(name="map")
+  @dynmap_config_web.command(name='map')
   @checks.admin_or_permissions()
   async def dynmap_config_web_map(self, ctx: commands.Context, map: str):
     """Sets the dynmap map name used in the embed link."""
     await self.config.guild(ctx.guild).web_map.set(map)
     await ctx.send(f'Dynmap map name set to `{map}`.')
 
-  @dynmap_config_web.command(name="zoom")
+  @dynmap_config_web.command(name='zoom')
   @checks.admin_or_permissions()
   async def dynmap_config_web_zoom(self, ctx: commands.Context, zoom: int):
     """Sets the dynmap zoom level used in the embed link."""
     await self.config.guild(ctx.guild).web_zoom.set(zoom)
     await ctx.send(f'Dynmap zoom level set to `{zoom}`.')
 
-  @dynmap_config_web.command(name="y")
+  @dynmap_config_web.command(name='y')
   @checks.admin_or_permissions()
   async def dynmap_config_web_y(self, ctx: commands.Context, y: int):
     """Sets the dynmap Y coordinate used in the embed link."""
@@ -174,23 +178,25 @@ class Dynmap(commands.Cog):
     if ctx.invoked_subcommand is None:
       pass
 
-  @dynmap_config_timeout.command(name="command")
+  @dynmap_config_timeout.command(name='command')
   @checks.admin_or_permissions()
   async def dynmap_config_timeout_command(self, ctx: commands.Context, timeout: int):
     """Sets the maximum number of seconds to wait for a console response after starting or cancelling a dynmap render."""
     await self.config.guild(ctx.guild).command_timeout_in_seconds.set(timeout)
     await ctx.send(f'Command timeout set to `{timeout}`.')
 
-  @dynmap_config_timeout.command(name="finish")
+  @dynmap_config_timeout.command(name='finish')
   @checks.admin_or_permissions()
   async def dynmap_config_timeout_finish(self, ctx: commands.Context, timeout: int):
     """Sets the maximum number of seconds to wait for a console message indicating that a dynmap render has finished."""
     await self.config.guild(ctx.guild).finish_timeout_in_seconds.set(timeout)
     await ctx.send(f'Finish timeout set to `{timeout}`.')
 
-  @dynmap.command(name="render")
+  @dynmap.command(name='render')
   async def dynmap_render(self, ctx: commands.Context, x: int, z: int, radius: int = None):
     """Starts a dynmap radius render centered on the specified coordinates."""
+    render = None
+
     try:
       try:
         pterodactyl_host = await self.config.guild(ctx.guild).pterodactyl_api_host()
@@ -230,6 +236,13 @@ class Dynmap(commands.Cog):
           async with session.ws_connect(ws_socket) as ws:
             await self.authenticate_websocket(ws, ws_token)
             await self.start_dynmap_render(ws, command_timeout_in_seconds, world, radius, x, z)
+
+            render = {
+              'user_id': ctx.author.id,
+              'message_id': message.id,
+              'cancelling_user_id': None
+            }
+            await self.config.guild(ctx.guild).current_render.set(render)
 
             embed.title = 'Dynmap Render In Progress'
             embed.color = Color.gold()
@@ -275,6 +288,10 @@ class Dynmap(commands.Cog):
     except HTTPException as ex:
       await ctx.send('Error: Unable to edit render status message.')
 
+    current_render = await self.config.guild(ctx.guild).current_render()
+    if render is not None and render is current_render:
+      await self.config.guild(ctx.guild).current_render.clear()
+
   def create_embed(self, ctx, url: str, radius: int, x: int, z: int):
     embed = Embed(
       color = Color.light_grey(),
@@ -289,7 +306,7 @@ class Dynmap(commands.Cog):
 
     return embed
 
-  def create_command_request_json(self, command):
+  def create_command_request_json(self, command: str):
     return {
       'event': 'send command',
       'args': [command]
@@ -356,9 +373,12 @@ class Dynmap(commands.Cog):
   async def wait_for_render_to_finish(self, ctx: commands.Context, ws: ClientWebSocketResponse, message: Message, command_timeout_in_seconds: int, finish_timeout_in_seconds: int, world: str):
     success_response = f'Radius render of \'{world}\' finished.'
     start_time_in_seconds = timer()
+    time_in_seconds_since_last_cancellation_check = start_time_in_seconds
 
     while timer() - start_time_in_seconds < finish_timeout_in_seconds:
       response_json = await ws.receive_json()
+
+      # print(response_json, flush = True)
 
       if response_json['event'] == 'console output':
         output = response_json['args'][0]
@@ -367,34 +387,47 @@ class Dynmap(commands.Cog):
           elapsed_time_in_seconds = int(timer() - start_time_in_seconds)
           return elapsed_time_in_seconds
 
-      cancelling_user = await self.check_for_valid_cancel_reaction(ctx, message)
+      # Check for render cancellations at least one second apart:
+      if timer() - time_in_seconds_since_last_cancellation_check >= 1:
+        # print("Checking for reactions", flush = True)
+        current_render = await self.config.guild(ctx.guild).current_render()
+        cancelling_user_id = current_render['cancelling_user_id']
 
-      if cancelling_user is not None:
-        await self.cancel_dynmap_render(ws, cancelling_user, command_timeout_in_seconds, world)
+        if cancelling_user_id is not None:
+          cancelling_user = self.bot.get_user(cancelling_user_id)
+          if cancelling_user is not None:
+            await self.cancel_dynmap_render(ws, cancelling_user, command_timeout_in_seconds, world)
+          else:
+            raise RenderFailedError('Cancelling user was not found.')
+
+        time_in_seconds_since_last_cancellation_check = timer()
 
     raise RenderTimeoutError('Unable to verify that the dynmap render completed successfully.')
 
-  async def check_for_valid_cancel_reaction(self, ctx: commands.Context, message: Message):
-    # Fetch the message again to get the latest reactions
-    fetched_message = await message.channel.fetch_message(message.id)
+  # Event handler when a user adds a reaction
+  @commands.Cog.listener()
+  async def on_reaction_add(self, reaction: Reaction, user: User):
+    guild = user.guild
 
-    # Get one of the "cancel" reactions from the message
-    reaction = next(filter(lambda x: x.emoji == self.UNICODE_STOP_BUTTON, fetched_message.reactions), None)
+    # Is the reaction a "stop button"?
+    if reaction.emoji == self.UNICODE_STOP_BUTTON:
+      current_render = await self.config.guild(guild).current_render()
 
-    # If there are no "cancel" reactions, return nothing
-    if reaction is None:
-      return None
+      # Is there a render currently running?
+      if current_render is not None:
 
-    # Get all users who have added that reaction to the message
-    users = await reaction.users().flatten()
+        # Is the reaction on the render's message?
+        if reaction.message.id == current_render['message_id']:
 
-    # Return the user if they are the one who started the render, or if they are a mod or above.
-    for user in users:
-      if user is not ctx.me:
-        if user is ctx.author or await is_mod_or_superior(ctx.bot, user):
-          return user
+          # Is the reacting user NOT the bot?
+          if user.id != self.bot.user.id:
 
-    return None
+            # Is the reacting user the one who started the render, or a staff member?
+            if user.id == current_render['user_id'] or await is_mod_or_superior(self.bot, user):
+
+              # If the answer is "yes" to all of the above questions, cancel the render.
+              current_render['cancelling_user_id'] = user.id
+              await self.config.guild(guild).current_render.set(current_render)
 
   async def cancel_dynmap_render(self, ws: ClientWebSocketResponse, cancelling_user: User, command_timeout_in_seconds: int, world: str):
     command = f'dynmap cancelrender {world}'
