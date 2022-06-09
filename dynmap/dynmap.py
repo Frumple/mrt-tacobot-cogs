@@ -47,8 +47,10 @@ class Dynmap(commands.Cog):
       'web_map': 'flat',
       'web_zoom': 6,
       'web_y': 64,
+      'elapsed_time_interval_in_seconds': 5,
+      'cancellation_check_interval_in_seconds': 1,
       'command_timeout_in_seconds': 10,
-      'finish_timeout_in_seconds': 600,
+      'render_timeout_in_seconds': 600,
       'current_render': None
     }
     self.config = Config.get_conf(self, identifier=8373008182, force_registration=True)
@@ -171,6 +173,27 @@ class Dynmap(commands.Cog):
     await self.config.guild(ctx.guild).web_y.set(y)
     await ctx.send(f'Dynmap Y coordinate set to `{y}`.')
 
+  @dynmap_config.group(name='interval')
+  @checks.admin_or_permissions()
+  async def dynmap_config_interval(self, ctx: commands.Context):
+    """Configures interval settings."""
+    if ctx.invoked_subcommand is None:
+      pass
+
+  @dynmap_config_interval.command(name='elapsed')
+  @checks.admin_or_permissions()
+  async def dynmap_config_interval_elapsed(self, ctx: commands.Context, interval: int):
+    """While a render is in progress, update the elapsed time every X seconds."""
+    await self.config.guild(ctx.guild).elapsed_time_interval_in_seconds.set(interval)
+    await ctx.send(f'Elapsed time interval set to `{interval}`.')
+
+  @dynmap_config_interval.command(name='cancel')
+  @checks.admin_or_permissions()
+  async def dynmap_config_interval_cancel(self, ctx: commands.Context, interval: int):
+    """While a render is in progress, check if a cancellation has been requested every X seconds."""
+    await self.config.guild(ctx.guild).cancellation_check_interval_in_seconds.set(interval)
+    await ctx.send(f'Cancellation check time interval set to `{interval}`.')
+
   @dynmap_config.group(name='timeout')
   @checks.admin_or_permissions()
   async def dynmap_config_timeout(self, ctx: commands.Context):
@@ -185,12 +208,12 @@ class Dynmap(commands.Cog):
     await self.config.guild(ctx.guild).command_timeout_in_seconds.set(timeout)
     await ctx.send(f'Command timeout set to `{timeout}`.')
 
-  @dynmap_config_timeout.command(name='finish')
+  @dynmap_config_timeout.command(name='render')
   @checks.admin_or_permissions()
-  async def dynmap_config_timeout_finish(self, ctx: commands.Context, timeout: int):
+  async def dynmap_config_timeout_render(self, ctx: commands.Context, timeout: int):
     """Sets the maximum number of seconds to wait for a console message indicating that a dynmap render has finished."""
-    await self.config.guild(ctx.guild).finish_timeout_in_seconds.set(timeout)
-    await ctx.send(f'Finish timeout set to `{timeout}`.')
+    await self.config.guild(ctx.guild).render_timeout_in_seconds.set(timeout)
+    await ctx.send(f'Render timeout set to `{timeout}`.')
 
   @dynmap.command(name='render')
   async def dynmap_render(self, ctx: commands.Context, x: int, z: int, radius: int = None):
@@ -214,8 +237,11 @@ class Dynmap(commands.Cog):
         web_zoom = await self.config.guild(ctx.guild).web_zoom()
         web_y = await self.config.guild(ctx.guild).web_y()
 
+        elapsed_time_interval_in_seconds = await self.config.guild(ctx.guild).elapsed_time_interval_in_seconds()
+        cancellation_check_interval_in_seconds = await self.config.guild(ctx.guild).cancellation_check_interval_in_seconds()
+
         command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
-        finish_timeout_in_seconds = await self.config.guild(ctx.guild).finish_timeout_in_seconds()
+        render_timeout_in_seconds = await self.config.guild(ctx.guild).render_timeout_in_seconds()
 
         if radius is None:
           radius = default_radius
@@ -235,7 +261,13 @@ class Dynmap(commands.Cog):
 
           async with session.ws_connect(ws_socket) as ws:
             await self.authenticate_websocket(ws, ws_token)
-            await self.start_dynmap_render(ws, command_timeout_in_seconds, world, radius, x, z)
+            await self.start_dynmap_render(
+              ws,
+              command_timeout_in_seconds,
+              world,
+              radius,
+              x,
+              z)
 
             render = {
               'user_id': ctx.author.id,
@@ -251,7 +283,16 @@ class Dynmap(commands.Cog):
             await message.edit(embed = embed)
             await message.add_reaction(self.UNICODE_STOP_BUTTON)
 
-            elapsed_time_in_seconds = await self.wait_for_render_to_finish(ctx, ws, message, command_timeout_in_seconds, finish_timeout_in_seconds, world)
+            elapsed_time_in_seconds = await self.wait_for_render_to_finish(
+              ctx,
+              ws,
+              embed,
+              message,
+              elapsed_time_interval_in_seconds,
+              cancellation_check_interval_in_seconds,
+              command_timeout_in_seconds,
+              render_timeout_in_seconds,
+              world)
             elapsed_time_formatted = self.format_time(elapsed_time_in_seconds)
 
             await self.display_final_result(message, embed,
@@ -352,7 +393,14 @@ class Dynmap(commands.Cog):
     if response_json['event'] != 'auth success':
       raise RenderFailedError('Received incorrect event when authenticating ws.')
 
-  async def start_dynmap_render(self, ws: ClientWebSocketResponse, command_timeout_in_seconds: int, world: str, radius: int, x: int, z: int):
+  async def start_dynmap_render(self,
+    ws: ClientWebSocketResponse,
+    command_timeout_in_seconds: int,
+    world: str,
+    radius: int,
+    x: int,
+    z: int):
+
     command = f'dynmap radiusrender {world} {x} {z} {radius}'
     request_json = self.create_command_request_json(command)
 
@@ -361,7 +409,11 @@ class Dynmap(commands.Cog):
     success_response = f'Render of {radius} block radius starting on world \'{world}\'...'
     failure_response = f'Radius render of world \'{world}\' already active.'
 
-    result = await self.wait_for_console_response(ws, command_timeout_in_seconds, success_response, failure_response)
+    result = await self.wait_for_console_response(
+      ws,
+      command_timeout_in_seconds,
+      success_response,
+      failure_response)
 
     if result == ConsoleResponseResult.SUCCESS:
       return
@@ -370,37 +422,63 @@ class Dynmap(commands.Cog):
     else:
       raise RenderTimeoutError('Unable to verify that the dynmap render has started.')
 
-  async def wait_for_render_to_finish(self, ctx: commands.Context, ws: ClientWebSocketResponse, message: Message, command_timeout_in_seconds: int, finish_timeout_in_seconds: int, world: str):
+  async def wait_for_render_to_finish(self,
+    ctx: commands.Context,
+    ws: ClientWebSocketResponse,
+    embed: Embed,
+    message: Message,
+    elapsed_time_interval_in_seconds: int,
+    cancellation_check_interval_in_seconds: int,
+    command_timeout_in_seconds: int,
+    render_timeout_in_seconds: int,
+    world: str):
+
     success_response = f'Radius render of \'{world}\' finished.'
     start_time_in_seconds = timer()
-    time_in_seconds_since_last_cancellation_check = start_time_in_seconds
+    current_time_in_seconds = start_time_in_seconds
 
-    while timer() - start_time_in_seconds < finish_timeout_in_seconds:
+    last_elapsed_time_update_in_seconds = start_time_in_seconds
+    last_cancellation_check_in_seconds = start_time_in_seconds
+
+    while current_time_in_seconds - start_time_in_seconds < render_timeout_in_seconds:
       response_json = await ws.receive_json()
 
-      # print(response_json, flush = True)
+      current_time_in_seconds = timer()
+      elapsed_time_in_seconds = int(current_time_in_seconds - start_time_in_seconds)
 
+      # Return when a "render finished" console message is encountered
       if response_json['event'] == 'console output':
         output = response_json['args'][0]
 
         if success_response in output:
-          elapsed_time_in_seconds = int(timer() - start_time_in_seconds)
           return elapsed_time_in_seconds
 
-      # Check for render cancellations at least one second apart:
-      if timer() - time_in_seconds_since_last_cancellation_check >= 1:
-        # print("Checking for reactions", flush = True)
+      # Update the time elapsed text every 5 seconds
+      if current_time_in_seconds - last_elapsed_time_update_in_seconds >= elapsed_time_interval_in_seconds:
+        elapsed_time_in_seconds = int(elapsed_time_in_seconds / elapsed_time_interval_in_seconds) * elapsed_time_interval_in_seconds
+        elapsed_time_formatted = self.format_time(elapsed_time_in_seconds)
+        embed.description = f'Time elapsed: {elapsed_time_formatted}'
+        await message.edit(embed = embed)
+
+        last_elapsed_time_update_in_seconds = current_time_in_seconds
+
+      # Check for render cancellations every second
+      if current_time_in_seconds - last_cancellation_check_in_seconds >= cancellation_check_interval_in_seconds:
         current_render = await self.config.guild(ctx.guild).current_render()
         cancelling_user_id = current_render['cancelling_user_id']
 
         if cancelling_user_id is not None:
           cancelling_user = self.bot.get_user(cancelling_user_id)
           if cancelling_user is not None:
-            await self.cancel_dynmap_render(ws, cancelling_user, command_timeout_in_seconds, world)
+            await self.cancel_dynmap_render(
+              ws,
+              cancelling_user,
+              command_timeout_in_seconds,
+              world)
           else:
             raise RenderFailedError('Cancelling user was not found.')
 
-        time_in_seconds_since_last_cancellation_check = timer()
+        last_cancellation_check_in_seconds = current_time_in_seconds
 
     raise RenderTimeoutError('Unable to verify that the dynmap render completed successfully.')
 
@@ -429,7 +507,12 @@ class Dynmap(commands.Cog):
               current_render['cancelling_user_id'] = user.id
               await self.config.guild(guild).current_render.set(current_render)
 
-  async def cancel_dynmap_render(self, ws: ClientWebSocketResponse, cancelling_user: User, command_timeout_in_seconds: int, world: str):
+  async def cancel_dynmap_render(self,
+    ws: ClientWebSocketResponse,
+    cancelling_user: User,
+    command_timeout_in_seconds: int,
+    world: str):
+
     command = f'dynmap cancelrender {world}'
     request_json = self.create_command_request_json(command)
 
@@ -437,14 +520,22 @@ class Dynmap(commands.Cog):
 
     success_response = f'Cancelled render for \'{world}\''
 
-    result = await self.wait_for_console_response(ws, command_timeout_in_seconds, success_response)
+    result = await self.wait_for_console_response(
+      ws,
+      command_timeout_in_seconds,
+      success_response)
 
     if result == ConsoleResponseResult.SUCCESS:
       raise RenderCancelledError(f'Cancelled by {cancelling_user.mention}.')
     else:
       raise RenderTimeoutError('Unable to verify that the dynmap render has been cancelled.')
 
-  async def wait_for_console_response(self, ws: ClientWebSocketResponse, timeout_in_seconds: int, success_response: str, failure_response: str = None):
+  async def wait_for_console_response(self,
+    ws: ClientWebSocketResponse,
+    timeout_in_seconds: int,
+    success_response: str,
+    failure_response: str = None):
+
     start_time_in_seconds = timer()
 
     while timer() - start_time_in_seconds < timeout_in_seconds:
@@ -461,7 +552,14 @@ class Dynmap(commands.Cog):
 
     return ConsoleResponseResult.TIMEOUT
 
-  async def display_final_result(self, message: Message, embed: Embed, title: str, color: Color, description: str, reaction: str):
+  async def display_final_result(self,
+    message: Message,
+    embed: Embed,
+    title: str,
+    color: Color,
+    description: str,
+    reaction: str):
+
     embed.title = title
     embed.color = color
     embed.description = description
