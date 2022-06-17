@@ -1,5 +1,5 @@
 from aiohttp import ClientSession, ClientWebSocketResponse
-from asyncio import TimeoutError, wait_for
+from asyncio import sleep
 from discord import Color, Embed, Message, Reaction, User
 from enum import Enum
 from functools import reduce
@@ -57,10 +57,34 @@ class Dynmap(commands.Cog):
       'auth_timeout_in_seconds': 10,
       'command_timeout_in_seconds': 10,
       'render_timeout_in_seconds': 600,
-      'current_render': None
+      'render_queue': []
     }
     self.config = Config.get_conf(self, identifier=8373008182, force_registration=True)
     self.config.register_guild(**default_guild)
+
+  # Event handler when a user adds a reaction
+  @commands.Cog.listener()
+  async def on_reaction_add(self, reaction: Reaction, user: User):
+    guild = user.guild
+
+    # Is the reaction a "stop button"?
+    if reaction.emoji == self.UNICODE_STOP_BUTTON:
+      async with self.config.guild(guild).render_queue() as render_queue:
+
+        # Is there a render currently running?
+        if len(render_queue) > 0:
+
+          # Is the reaction on the render's message?
+          if reaction.message.id == render_queue[0]['message_id']:
+
+            # Is the reacting user NOT the bot?
+            if user.id != self.bot.user.id:
+
+              # Is the reacting user the one who started the render, or a staff member?
+              if user.id == render_queue[0]['user_id'] or await is_mod_or_superior(self.bot, user):
+
+                # If the answer is "yes" to all of the above questions, cancel the render.
+                render_queue[0]['cancelling_user_id'] = user.id
 
   @commands.group()
   async def dynmap(self, ctx: commands.Context):
@@ -228,6 +252,13 @@ class Dynmap(commands.Cog):
     await self.config.guild(ctx.guild).render_timeout_in_seconds.set(timeout)
     await ctx.send(f'Render timeout set to `{timeout}`.')
 
+  @dynmap.command(name='clear_queue')
+  @checks.admin_or_permissions()
+  async def dynmap_clear_queue(self, ctx: commands.Context):
+    """Clears the internal queue of dynmap renders. Caution: Will likely cause any currently running or queued renders to fail."""
+    await self.config.guild(ctx.guild).render_queue.clear()
+    await ctx.send('Render queue cleared.')
+
   @dynmap.command(name='render')
   async def dynmap_render(self, ctx: commands.Context, x: int, z: int, radius: int = None):
     """Starts a dynmap radius render centered on the specified coordinates."""
@@ -264,7 +295,10 @@ class Dynmap(commands.Cog):
               'message_id': message.id,
               'cancelling_user_id': None
             }
-            await self.config.guild(ctx.guild).current_render.set(this_render)
+            async with self.config.guild(ctx.guild).render_queue() as render_queue:
+              # TODO: Fail if queue is full
+              # raise RenderFailedError('A dynmap render is already running. Please try again in a few minutes.')
+              render_queue.append(this_render)
 
             await self.start_dynmap_render(
               ctx,
@@ -272,6 +306,7 @@ class Dynmap(commands.Cog):
               ws,
               embed,
               message,
+              this_render,
               x,
               z,
               radius)
@@ -281,7 +316,8 @@ class Dynmap(commands.Cog):
               session,
               ws,
               embed,
-              message)
+              message,
+              this_render)
             elapsed_time_formatted = self.format_time(elapsed_time_in_seconds)
 
             await self.update_status_message(message, embed,
@@ -318,12 +354,19 @@ class Dynmap(commands.Cog):
     except HTTPException as ex:
       await ctx.send('Error: Unable to edit render status message.')
 
-    # Remember to clear out the current render information if the render stops for any reason
-    current_render = await self.config.guild(ctx.guild).current_render()
-    if this_render and this_render is current_render:
-      await self.config.guild(ctx.guild).current_render.clear()
+    # Make sure to clear out the render from the queue if it stops for any reason
+    if this_render:
+      async with self.config.guild(ctx.guild).render_queue() as render_queue:
+        for index, render in enumerate(render_queue):
+          if render['message_id'] == this_render['message_id']:
+            render_queue.pop(index)
 
-  async def get_embed_url(self, ctx, x, z, world):
+  async def get_embed_url(self,
+    ctx: commands.Context,
+    x: int,
+    z: int,
+    world: str):
+
     web_host = await self.config.guild(ctx.guild).web_host()
     web_map = await self.config.guild(ctx.guild).web_map()
     web_zoom = await self.config.guild(ctx.guild).web_zoom()
@@ -331,32 +374,10 @@ class Dynmap(commands.Cog):
 
     return f'{web_host}/?worldname={world}&mapname={web_map}&zoom={web_zoom}&x={x}&y={web_y}&z={z}'
 
-  def create_embed(self, ctx, url: str, radius: int, x: int, z: int):
-    embed = Embed(
-      color = Color.light_grey(),
-      title = 'Dynmap Render Initializing',
-      description = 'Please wait...',
-      url = url)
+  async def get_websocket_credentials(self,
+    ctx: commands.Context,
+    session: ClientSession):
 
-    embed.set_author(name = ctx.author.display_name, icon_url = ctx.author.avatar_url)
-    embed.add_field(name = 'X', value = x, inline = True)
-    embed.add_field(name = 'Z', value = z, inline = True)
-    embed.add_field(name = 'Radius', value = radius, inline = True)
-
-    return embed
-
-  def create_command_request_json(self, command: str):
-    return {
-      'event': 'send command',
-      'args': [command]
-    }
-
-  def format_time(self, time_in_seconds: int):
-    format_minutes = int(time_in_seconds / 60)
-    format_seconds = int(time_in_seconds % 60)
-    return f'{format_minutes}m {format_seconds}s'
-
-  async def get_websocket_credentials(self, ctx: commands.Context, session: ClientSession):
     pterodactyl_host = await self.config.guild(ctx.guild).pterodactyl_api_host()
     pterodactyl_key = await self.config.guild(ctx.guild).pterodactyl_api_key()
     pterodactyl_id = await self.config.guild(ctx.guild).pterodactyl_server_id()
@@ -383,6 +404,7 @@ class Dynmap(commands.Cog):
     ctx: commands.Context,
     ws: ClientWebSocketResponse,
     ws_token: str):
+
     auth_timeout_in_seconds = await self.config.guild(ctx.guild).auth_timeout_in_seconds()
 
     request_json = {
@@ -408,6 +430,7 @@ class Dynmap(commands.Cog):
     ws: ClientWebSocketResponse,
     embed: Embed,
     message: Message,
+    render: dict,
     x: int,
     z: int,
     radius: int):
@@ -420,27 +443,41 @@ class Dynmap(commands.Cog):
     request_json = self.create_command_request_json(command)
 
     while True:
-      # TODO: Start render only if it is the next render to run
+      start_render_result = ConsoleResponseResult.FAILURE
 
-      await ws.send_json(request_json)
+      # Attempt to start the render only if it is the next queued render to run
+      async with self.config.guild(ctx.guild).render_queue() as render_queue:
 
-      success_response = self.CONSOLE_MESSAGE_RENDER_STARTED.format(radius = radius, world = world)
-      failure_response = self.CONSOLE_MESSAGE_RENDER_ALREADY_RUNNING.format(world = world)
+        print(render_queue[0], flush = True)
+        print(render, flush = True)
 
-      start_render_result = await self.wait_for_console_response(
-        ctx,
-        session,
-        ws,
-        command_timeout_in_seconds,
-        success_response,
-        failure_response)
+        if len(render_queue) > 0 and render_queue[0]['message_id'] == render['message_id']:
+          await ws.send_json(request_json)
 
-      current_render = await self.config.guild(ctx.guild).current_render()
+          success_response = self.CONSOLE_MESSAGE_RENDER_STARTED.format(radius = radius, world = world)
+          failure_response = self.CONSOLE_MESSAGE_RENDER_ALREADY_RUNNING.format(world = world)
+
+          start_render_result = await self.wait_for_console_response(
+            ctx,
+            session,
+            ws,
+            command_timeout_in_seconds,
+            success_response,
+            failure_response)
+
+      # If the render has started, return successfully
+      if start_render_result == ConsoleResponseResult.SUCCESS:
+        await self.update_status_message(message, embed,
+          title = 'Dynmap Render In Progress',
+          color = Color.gold(),
+          description = 'Time elapsed: 0m 0s',
+          footer = f'React with {self.UNICODE_STOP_BUTTON} to cancel (Initiating user or staff only).',
+          reaction = self.UNICODE_STOP_BUTTON
+        )
+        return
 
       # If another render is already running, wait for it to finish or be cancelled, then try to start the render again
-      if start_render_result == ConsoleResponseResult.FAILURE:
-        # TODO: Add render to queue
-
+      elif start_render_result == ConsoleResponseResult.FAILURE:
         await self.update_status_message(message, embed,
           title = 'Dynmap Render Queued',
           color = Color.blue(),
@@ -450,7 +487,7 @@ class Dynmap(commands.Cog):
         success_response = self.CONSOLE_MESSAGE_RENDER_FINISHED.format(world = world)
         failure_response = self.CONSOLE_MESSAGE_RENDER_CANCELLED.format(world = world)
 
-        result = await self.wait_for_console_response(
+        console_result = await self.wait_for_console_response(
           ctx,
           session,
           ws,
@@ -459,23 +496,11 @@ class Dynmap(commands.Cog):
           failure_response
         )
 
-        if result == ConsoleResponseResult.TIMEOUT:
+        if console_result == ConsoleResponseResult.TIMEOUT:
           raise RenderTimeoutError('Waited too long for the current render to finish or be cancelled.')
 
-      # TODO: Fail if queue is full
-      # raise RenderFailedError('A dynmap render is already running. Please try again in a few minutes.')
-
-      # If the render has started, return successfully
-      elif start_render_result == ConsoleResponseResult.SUCCESS:
-        await self.update_status_message(message, embed,
-          title = 'Dynmap Render In Progress',
-          color = Color.gold(),
-          description = 'Time elapsed: 0m 0s',
-          footer = f'React with {self.UNICODE_STOP_BUTTON} to cancel (Initiating user or staff only).',
-          reaction = self.UNICODE_STOP_BUTTON
-        )
-
-        return
+        # Wait a second to let the previous render remove itself from the queue, then try to start the render again
+        await sleep(1)
 
       else:
         raise RenderTimeoutError('Did not receive a response when starting the render.')
@@ -485,7 +510,8 @@ class Dynmap(commands.Cog):
     session: ClientSession,
     ws: ClientWebSocketResponse,
     embed: Embed,
-    message: Message):
+    message: Message,
+    render: dict):
 
     world = await self.config.guild(ctx.guild).render_world()
 
@@ -531,50 +557,29 @@ class Dynmap(commands.Cog):
 
       # Check for render cancellations every second
       if current_time_in_seconds - last_cancellation_check_in_seconds >= cancellation_check_interval_in_seconds:
-        current_render = await self.config.guild(ctx.guild).current_render()
-        cancelling_user_id = current_render['cancelling_user_id']
+        async with self.config.guild(ctx.guild).render_queue() as render_queue:
+          if len(render_queue) > 0 and render_queue[0]['message_id'] == render['message_id']:
+            cancelling_user_id = render_queue[0]['cancelling_user_id']
 
-        if cancelling_user_id:
-          cancelling_user = self.bot.get_user(cancelling_user_id)
-          if cancelling_user:
-            await self.cancel_dynmap_render(
-              ctx,
-              session,
-              ws,
-              cancelling_user,
-              command_timeout_in_seconds,
-              world)
+            if cancelling_user_id:
+              cancelling_user = self.bot.get_user(cancelling_user_id)
+              if cancelling_user:
+                await self.cancel_dynmap_render(
+                  ctx,
+                  session,
+                  ws,
+                  cancelling_user,
+                  command_timeout_in_seconds,
+                  world)
+              else:
+                raise RenderFailedError('Cancelling user was not found.')
+
+            last_cancellation_check_in_seconds = current_time_in_seconds
+
           else:
-            raise RenderFailedError('Cancelling user was not found.')
-
-        last_cancellation_check_in_seconds = current_time_in_seconds
+            raise RenderFailedError('Current render is not at head of render queue.')
 
     raise RenderTimeoutError('Unable to verify that the dynmap render completed successfully.')
-
-  # Event handler when a user adds a reaction
-  @commands.Cog.listener()
-  async def on_reaction_add(self, reaction: Reaction, user: User):
-    guild = user.guild
-
-    # Is the reaction a "stop button"?
-    if reaction.emoji == self.UNICODE_STOP_BUTTON:
-      current_render = await self.config.guild(guild).current_render()
-
-      # Is there a render currently running?
-      if current_render:
-
-        # Is the reaction on the render's message?
-        if reaction.message.id == current_render['message_id']:
-
-          # Is the reacting user NOT the bot?
-          if user.id != self.bot.user.id:
-
-            # Is the reacting user the one who started the render, or a staff member?
-            if user.id == current_render['user_id'] or await is_mod_or_superior(self.bot, user):
-
-              # If the answer is "yes" to all of the above questions, cancel the render.
-              current_render['cancelling_user_id'] = user.id
-              await self.config.guild(guild).current_render.set(current_render)
 
   async def cancel_dynmap_render(self,
     ctx: commands.Context,
@@ -680,3 +685,31 @@ class Dynmap(commands.Cog):
 
     if reaction:
       await message.add_reaction(reaction)
+
+  @staticmethod
+  def create_embed(ctx, url: str, radius: int, x: int, z: int):
+    embed = Embed(
+      color = Color.light_grey(),
+      title = 'Dynmap Render Initializing',
+      description = 'Please wait...',
+      url = url)
+
+    embed.set_author(name = ctx.author.display_name, icon_url = ctx.author.avatar_url)
+    embed.add_field(name = 'X', value = x, inline = True)
+    embed.add_field(name = 'Z', value = z, inline = True)
+    embed.add_field(name = 'Radius', value = radius, inline = True)
+
+    return embed
+
+  @staticmethod
+  def create_command_request_json(command: str):
+    return {
+      'event': 'send command',
+      'args': [command]
+    }
+
+  @staticmethod
+  def format_time(time_in_seconds: int):
+    format_minutes = int(time_in_seconds / 60)
+    format_seconds = int(time_in_seconds % 60)
+    return f'{format_minutes}m {format_seconds}s'
