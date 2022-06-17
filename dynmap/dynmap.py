@@ -27,6 +27,11 @@ class RenderTimeoutError(Exception):
 class Dynmap(commands.Cog):
   """Allows users to run dynmap radius renders from Discord."""
 
+  CONSOLE_MESSAGE_RENDER_STARTED = 'Render of {radius} block radius starting on world \'{world}\'...'
+  CONSOLE_MESSAGE_RENDER_ALREADY_RUNNING = 'Radius render of world \'{world}\' already active.'
+  CONSOLE_MESSAGE_RENDER_FINISHED = 'Radius render of \'{world}\' finished.'
+  CONSOLE_MESSAGE_RENDER_CANCELLED = 'Cancelled render for \'{world}\''
+
   UNICODE_WHITE_CHECK_MARK = '\U00002705'
   UNICODE_X = '\U0000274C'
   UNICODE_STOP_BUTTON = '\U000023F9'
@@ -49,6 +54,7 @@ class Dynmap(commands.Cog):
       'web_y': 64,
       'elapsed_time_interval_in_seconds': 5,
       'cancellation_check_interval_in_seconds': 1,
+      'auth_timeout_in_seconds': 10,
       'command_timeout_in_seconds': 10,
       'render_timeout_in_seconds': 600,
       'current_render': None
@@ -94,7 +100,7 @@ class Dynmap(commands.Cog):
   async def dynmap_config_pterodactyl_id(self, ctx: commands.Context, id: str):
     """Sets the Pterodactyl server ID."""
     await self.config.guild(ctx.guild).pterodactyl_server_id.set(id)
-    await ctx.send(f'Pterodactyl API server ID has been set to `{id}`.')
+    await ctx.send(f'Pterodactyl API server ID has been set.')
 
   @dynmap_config.group(name='render')
   @checks.admin_or_permissions()
@@ -201,6 +207,13 @@ class Dynmap(commands.Cog):
     if ctx.invoked_subcommand is None:
       pass
 
+  @dynmap_config_timeout.command(name='auth')
+  @checks.admin_or_permissions()
+  async def dynmap_config_timeout_auth(self, ctx: commands.Context, timeout: int):
+    """Sets the maximum number of seconds to wait for a successful response after sending a websocket authentication request.'."""
+    await self.config.guild(ctx.guild).auth_timeout_in_seconds.set(timeout)
+    await ctx.send(f'Auth timeout set to `{timeout}`.')
+
   @dynmap_config_timeout.command(name='command')
   @checks.admin_or_permissions()
   async def dynmap_config_timeout_command(self, ctx: commands.Context, timeout: int):
@@ -218,37 +231,21 @@ class Dynmap(commands.Cog):
   @dynmap.command(name='render')
   async def dynmap_render(self, ctx: commands.Context, x: int, z: int, radius: int = None):
     """Starts a dynmap radius render centered on the specified coordinates."""
-    render = None
+    world = await self.config.guild(ctx.guild).render_world()
+    default_radius = await self.config.guild(ctx.guild).render_default_radius()
+    min_radius = await self.config.guild(ctx.guild).render_min_radius()
+    max_radius = await self.config.guild(ctx.guild).render_max_radius()
+    max_dimension = await self.config.guild(ctx.guild).render_max_dimension()
+
+    this_render = None
 
     try:
       try:
-        pterodactyl_host = await self.config.guild(ctx.guild).pterodactyl_api_host()
-        pterodactyl_key = await self.config.guild(ctx.guild).pterodactyl_api_key()
-        pterodactyl_id = await self.config.guild(ctx.guild).pterodactyl_server_id()
-
-        world = await self.config.guild(ctx.guild).render_world()
-        default_radius = await self.config.guild(ctx.guild).render_default_radius()
-        min_radius = await self.config.guild(ctx.guild).render_min_radius()
-        max_radius = await self.config.guild(ctx.guild).render_max_radius()
-        max_dimension = await self.config.guild(ctx.guild).render_max_dimension()
-
-        web_host = await self.config.guild(ctx.guild).web_host()
-        web_map = await self.config.guild(ctx.guild).web_map()
-        web_zoom = await self.config.guild(ctx.guild).web_zoom()
-        web_y = await self.config.guild(ctx.guild).web_y()
-
-        elapsed_time_interval_in_seconds = await self.config.guild(ctx.guild).elapsed_time_interval_in_seconds()
-        cancellation_check_interval_in_seconds = await self.config.guild(ctx.guild).cancellation_check_interval_in_seconds()
-
-        command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
-        render_timeout_in_seconds = await self.config.guild(ctx.guild).render_timeout_in_seconds()
-
         if radius is None:
           radius = default_radius
 
-        embed_url = f'{web_host}/?worldname={world}&mapname={web_map}&zoom={web_zoom}&x={x}&y={web_y}&z={z}'
+        embed_url = await self.get_embed_url(ctx, x, z, world)
         embed = self.create_embed(ctx, embed_url, radius, x, z)
-
         message = await ctx.send(embed = embed)
 
         if x > max_dimension or x < -max_dimension or z > max_dimension or z < -max_dimension:
@@ -257,45 +254,37 @@ class Dynmap(commands.Cog):
           raise RenderFailedError(f'Radius must be between `{min_radius}` and `{max_radius}`.')
 
         async with ClientSession() as session:
-          ws_socket, ws_token = await self.get_websocket_credentials(session, pterodactyl_host, pterodactyl_key, pterodactyl_id)
+          ws_socket, ws_token = await self.get_websocket_credentials(ctx, session)
 
           async with session.ws_connect(ws_socket) as ws:
-            await self.authenticate_websocket(ws, ws_token)
-            await self.start_dynmap_render(
-              ws,
-              command_timeout_in_seconds,
-              world,
-              radius,
-              x,
-              z)
+            await self.authenticate_websocket(ctx, ws, ws_token)
 
-            render = {
+            this_render = {
               'user_id': ctx.author.id,
               'message_id': message.id,
               'cancelling_user_id': None
             }
-            await self.config.guild(ctx.guild).current_render.set(render)
+            await self.config.guild(ctx.guild).current_render.set(this_render)
 
-            embed.title = 'Dynmap Render In Progress'
-            embed.color = Color.gold()
-            embed.set_footer(text = f'React with {self.UNICODE_STOP_BUTTON} to cancel (Initiating user or staff only).')
-
-            await message.edit(embed = embed)
-            await message.add_reaction(self.UNICODE_STOP_BUTTON)
-
-            elapsed_time_in_seconds = await self.wait_for_render_to_finish(
+            await self.start_dynmap_render(
               ctx,
+              session,
               ws,
               embed,
               message,
-              elapsed_time_interval_in_seconds,
-              cancellation_check_interval_in_seconds,
-              command_timeout_in_seconds,
-              render_timeout_in_seconds,
-              world)
+              x,
+              z,
+              radius)
+
+            elapsed_time_in_seconds = await self.dynmap_render_in_progress(
+              ctx,
+              session,
+              ws,
+              embed,
+              message)
             elapsed_time_formatted = self.format_time(elapsed_time_in_seconds)
 
-            await self.display_final_result(message, embed,
+            await self.update_status_message(message, embed,
               title = 'Dynmap Render Complete',
               color = Color.green(),
               description = f'Time elapsed: {elapsed_time_formatted}',
@@ -303,7 +292,7 @@ class Dynmap(commands.Cog):
             )
 
       except RenderCancelledError as ex:
-        await self.display_final_result(message, embed,
+        await self.update_status_message(message, embed,
           title = 'Dynmap Render Cancelled',
           color = Color.red(),
           description = f'{ex}',
@@ -311,7 +300,7 @@ class Dynmap(commands.Cog):
         )
 
       except RenderFailedError as ex:
-        await self.display_final_result(message, embed,
+        await self.update_status_message(message, embed,
           title = 'Dynmap Render Failed',
           color = Color.red(),
           description = f'Error: {ex}',
@@ -319,7 +308,7 @@ class Dynmap(commands.Cog):
         )
 
       except RenderTimeoutError as ex:
-        await self.display_final_result(message, embed,
+        await self.update_status_message(message, embed,
           title = 'Dynmap Render Timeout',
           color = Color.red(),
           description = f'Error: {ex}',
@@ -329,9 +318,18 @@ class Dynmap(commands.Cog):
     except HTTPException as ex:
       await ctx.send('Error: Unable to edit render status message.')
 
+    # Remember to clear out the current render information if the render stops for any reason
     current_render = await self.config.guild(ctx.guild).current_render()
-    if render is not None and render is current_render:
+    if this_render and this_render is current_render:
       await self.config.guild(ctx.guild).current_render.clear()
+
+  async def get_embed_url(self, ctx, x, z, world):
+    web_host = await self.config.guild(ctx.guild).web_host()
+    web_map = await self.config.guild(ctx.guild).web_map()
+    web_zoom = await self.config.guild(ctx.guild).web_zoom()
+    web_y = await self.config.guild(ctx.guild).web_y()
+
+    return f'{web_host}/?worldname={world}&mapname={web_map}&zoom={web_zoom}&x={x}&y={web_y}&z={z}'
 
   def create_embed(self, ctx, url: str, radius: int, x: int, z: int):
     embed = Embed(
@@ -358,12 +356,16 @@ class Dynmap(commands.Cog):
     format_seconds = int(time_in_seconds % 60)
     return f'{format_minutes}m {format_seconds}s'
 
-  async def get_websocket_credentials(self, session: ClientSession, host: str, key: str, id: str):
-    websocket_url = reduce(urljoin, [host, 'api/client/servers/', id + '/', 'websocket'])
+  async def get_websocket_credentials(self, ctx: commands.Context, session: ClientSession):
+    pterodactyl_host = await self.config.guild(ctx.guild).pterodactyl_api_host()
+    pterodactyl_key = await self.config.guild(ctx.guild).pterodactyl_api_key()
+    pterodactyl_id = await self.config.guild(ctx.guild).pterodactyl_server_id()
+
+    websocket_url = reduce(urljoin, [pterodactyl_host, 'api/client/servers/', pterodactyl_id + '/', 'websocket'])
     headers = {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
-      'Authorization': f'Bearer {key}'
+      'Authorization': f'Bearer {pterodactyl_key}'
     }
     async with session.get(websocket_url, headers = headers) as response:
       status_code = response.status
@@ -377,7 +379,12 @@ class Dynmap(commands.Cog):
 
       return ws_socket, ws_token
 
-  async def authenticate_websocket(self, ws: ClientWebSocketResponse, ws_token: str):
+  async def authenticate_websocket(self,
+    ctx: commands.Context,
+    ws: ClientWebSocketResponse,
+    ws_token: str):
+    auth_timeout_in_seconds = await self.config.guild(ctx.guild).auth_timeout_in_seconds()
+
     request_json = {
       'event': 'auth',
       'args': [ws_token]
@@ -385,55 +392,110 @@ class Dynmap(commands.Cog):
 
     await ws.send_json(request_json)
 
-    try:
-      response_json = await wait_for(ws.receive_json(), timeout = 10)
-    except TimeoutError:
-      raise RenderTimeoutError('Timed out while authenticating ws.')
+    start_time_in_seconds = timer()
 
-    if response_json['event'] != 'auth success':
-      raise RenderFailedError('Received incorrect event when authenticating ws.')
+    while timer() - start_time_in_seconds < auth_timeout_in_seconds:
+      event_json = await ws.receive_json()
+
+      if event_json['event'] == 'auth success':
+        return
+
+    raise RenderTimeoutError('Timed out while authenticating websocket.')
 
   async def start_dynmap_render(self,
+    ctx: commands.Context,
+    session: ClientSession,
     ws: ClientWebSocketResponse,
-    command_timeout_in_seconds: int,
-    world: str,
-    radius: int,
+    embed: Embed,
+    message: Message,
     x: int,
-    z: int):
+    z: int,
+    radius: int):
+
+    world = await self.config.guild(ctx.guild).render_world()
+    command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
+    render_timeout_in_seconds = await self.config.guild(ctx.guild).render_timeout_in_seconds()
 
     command = f'dynmap radiusrender {world} {x} {z} {radius}'
     request_json = self.create_command_request_json(command)
 
-    await ws.send_json(request_json)
+    while True:
+      # TODO: Start render only if it is the next render to run
 
-    success_response = f'Render of {radius} block radius starting on world \'{world}\'...'
-    failure_response = f'Radius render of world \'{world}\' already active.'
+      await ws.send_json(request_json)
 
-    result = await self.wait_for_console_response(
-      ws,
-      command_timeout_in_seconds,
-      success_response,
-      failure_response)
+      success_response = self.CONSOLE_MESSAGE_RENDER_STARTED.format(radius = radius, world = world)
+      failure_response = self.CONSOLE_MESSAGE_RENDER_ALREADY_RUNNING.format(world = world)
 
-    if result == ConsoleResponseResult.SUCCESS:
-      return
-    elif result == ConsoleResponseResult.FAILURE:
-      raise RenderFailedError('A dynmap render is already running. Please try again in a few minutes.')
-    else:
-      raise RenderTimeoutError('Unable to verify that the dynmap render has started.')
+      start_render_result = await self.wait_for_console_response(
+        ctx,
+        session,
+        ws,
+        command_timeout_in_seconds,
+        success_response,
+        failure_response)
 
-  async def wait_for_render_to_finish(self,
+      current_render = await self.config.guild(ctx.guild).current_render()
+
+      # If another render is already running, wait for it to finish or be cancelled, then try to start the render again
+      if start_render_result == ConsoleResponseResult.FAILURE:
+        # TODO: Add render to queue
+
+        await self.update_status_message(message, embed,
+          title = 'Dynmap Render Queued',
+          color = Color.blue(),
+          description = 'Another render is currently running. Please wait...'
+        )
+
+        success_response = self.CONSOLE_MESSAGE_RENDER_FINISHED.format(world = world)
+        failure_response = self.CONSOLE_MESSAGE_RENDER_CANCELLED.format(world = world)
+
+        result = await self.wait_for_console_response(
+          ctx,
+          session,
+          ws,
+          render_timeout_in_seconds,
+          success_response,
+          failure_response
+        )
+
+        if result == ConsoleResponseResult.TIMEOUT:
+          raise RenderTimeoutError('Waited too long for the current render to finish or be cancelled.')
+
+      # TODO: Fail if queue is full
+      # raise RenderFailedError('A dynmap render is already running. Please try again in a few minutes.')
+
+      # If the render has started, return successfully
+      elif start_render_result == ConsoleResponseResult.SUCCESS:
+        await self.update_status_message(message, embed,
+          title = 'Dynmap Render In Progress',
+          color = Color.gold(),
+          description = 'Time elapsed: 0m 0s',
+          footer = f'React with {self.UNICODE_STOP_BUTTON} to cancel (Initiating user or staff only).',
+          reaction = self.UNICODE_STOP_BUTTON
+        )
+
+        return
+
+      else:
+        raise RenderTimeoutError('Did not receive a response when starting the render.')
+
+  async def dynmap_render_in_progress(self,
     ctx: commands.Context,
+    session: ClientSession,
     ws: ClientWebSocketResponse,
     embed: Embed,
-    message: Message,
-    elapsed_time_interval_in_seconds: int,
-    cancellation_check_interval_in_seconds: int,
-    command_timeout_in_seconds: int,
-    render_timeout_in_seconds: int,
-    world: str):
+    message: Message):
 
-    success_response = f'Radius render of \'{world}\' finished.'
+    world = await self.config.guild(ctx.guild).render_world()
+
+    elapsed_time_interval_in_seconds = await self.config.guild(ctx.guild).elapsed_time_interval_in_seconds()
+    cancellation_check_interval_in_seconds = await self.config.guild(ctx.guild).cancellation_check_interval_in_seconds()
+
+    command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
+    render_timeout_in_seconds = await self.config.guild(ctx.guild).render_timeout_in_seconds()
+
+    success_response = self.CONSOLE_MESSAGE_RENDER_FINISHED.format(world = world)
     start_time_in_seconds = timer()
     current_time_in_seconds = start_time_in_seconds
 
@@ -441,17 +503,22 @@ class Dynmap(commands.Cog):
     last_cancellation_check_in_seconds = start_time_in_seconds
 
     while current_time_in_seconds - start_time_in_seconds < render_timeout_in_seconds:
-      response_json = await ws.receive_json()
+      event_json = await ws.receive_json()
+      print(event_json, flush = True)
 
       current_time_in_seconds = timer()
       elapsed_time_in_seconds = int(current_time_in_seconds - start_time_in_seconds)
 
-      # Return when a "render finished" console message is encountered
-      if response_json['event'] == 'console output':
-        output = response_json['args'][0]
+      console_output = await self.handle_websocket_event(
+        ctx,
+        session,
+        ws,
+        event_json
+      )
 
-        if success_response in output:
-          return elapsed_time_in_seconds
+      # Return when a "render finished" console message is encountered
+      if console_output and success_response in console_output:
+        return elapsed_time_in_seconds
 
       # Update the time elapsed text every 5 seconds
       if current_time_in_seconds - last_elapsed_time_update_in_seconds >= elapsed_time_interval_in_seconds:
@@ -467,10 +534,12 @@ class Dynmap(commands.Cog):
         current_render = await self.config.guild(ctx.guild).current_render()
         cancelling_user_id = current_render['cancelling_user_id']
 
-        if cancelling_user_id is not None:
+        if cancelling_user_id:
           cancelling_user = self.bot.get_user(cancelling_user_id)
-          if cancelling_user is not None:
+          if cancelling_user:
             await self.cancel_dynmap_render(
+              ctx,
+              session,
               ws,
               cancelling_user,
               command_timeout_in_seconds,
@@ -492,7 +561,7 @@ class Dynmap(commands.Cog):
       current_render = await self.config.guild(guild).current_render()
 
       # Is there a render currently running?
-      if current_render is not None:
+      if current_render:
 
         # Is the reaction on the render's message?
         if reaction.message.id == current_render['message_id']:
@@ -508,6 +577,8 @@ class Dynmap(commands.Cog):
               await self.config.guild(guild).current_render.set(current_render)
 
   async def cancel_dynmap_render(self,
+    ctx: commands.Context,
+    session: ClientSession,
     ws: ClientWebSocketResponse,
     cancelling_user: User,
     command_timeout_in_seconds: int,
@@ -518,9 +589,11 @@ class Dynmap(commands.Cog):
 
     await ws.send_json(request_json)
 
-    success_response = f'Cancelled render for \'{world}\''
+    success_response = self.CONSOLE_MESSAGE_RENDER_CANCELLED.format(world = world)
 
     result = await self.wait_for_console_response(
+      ctx,
+      session,
       ws,
       command_timeout_in_seconds,
       success_response)
@@ -528,9 +601,11 @@ class Dynmap(commands.Cog):
     if result == ConsoleResponseResult.SUCCESS:
       raise RenderCancelledError(f'Cancelled by {cancelling_user.mention}.')
     else:
-      raise RenderTimeoutError('Unable to verify that the dynmap render has been cancelled.')
+      raise RenderTimeoutError('Did not receive a response when cancelling the render.')
 
   async def wait_for_console_response(self,
+    ctx: commands.Context,
+    session: ClientSession,
     ws: ClientWebSocketResponse,
     timeout_in_seconds: int,
     success_response: str,
@@ -539,32 +614,69 @@ class Dynmap(commands.Cog):
     start_time_in_seconds = timer()
 
     while timer() - start_time_in_seconds < timeout_in_seconds:
-      response_json = await ws.receive_json()
+      event_json = await ws.receive_json()
+      console_output = await self.handle_websocket_event(
+        ctx,
+        session,
+        ws,
+        event_json)
 
-      if response_json['event'] == 'console output':
-        output = response_json['args'][0]
-
-        if success_response in output:
+      if console_output:
+        if success_response in console_output:
           return ConsoleResponseResult.SUCCESS
 
-        if failure_response is not None and failure_response in output:
+        if failure_response and failure_response in console_output:
           return ConsoleResponseResult.FAILURE
 
     return ConsoleResponseResult.TIMEOUT
 
-  async def display_final_result(self,
+  # Processes incoming events from the Pterodactyl API websocket.
+  # Ensures that the websocket token is re-authenticated when it is expiring or expired.
+  # If the event is 'console output', return the output. Otherwise, return None.
+  async def handle_websocket_event(self,
+    ctx: commands.Context,
+    session: ClientSession,
+    ws: ClientWebSocketResponse,
+    event_json: str
+  ):
+    event = event_json['event']
+
+    if event == 'console output':
+      arg = event_json['args'][0]
+      return arg
+
+    elif event == 'jwt error':
+      arg = event_json['args'][0]
+      if arg == 'jwt: exp claim is invalid':
+        raise RenderFailedError('Websocket token expired.')
+      else:
+        print(f'JWT Error: {arg}', flush = True)
+        raise RenderFailedError('Websocket failure. Check your console or logs for details.')
+
+    elif event == 'token expiring' or event == 'token expired':
+      ws_socket, ws_token = await self.get_websocket_credentials(ctx, session)
+      await self.authenticate_websocket(ctx, ws, ws_token)
+
+    return None
+
+  async def update_status_message(self,
     message: Message,
     embed: Embed,
-    title: str,
-    color: Color,
-    description: str,
-    reaction: str):
+    *,
+    title: str = None,
+    color: Color = None,
+    description: str = None,
+    footer: str = Embed.Empty,
+    reaction: str = None):
 
     embed.title = title
     embed.color = color
     embed.description = description
-    embed.set_footer(text = Embed.Empty)
+    embed.set_footer(text = footer)
 
     await message.edit(embed = embed)
+
     await message.clear_reactions()
-    await message.add_reaction(reaction)
+
+    if reaction:
+      await message.add_reaction(reaction)
