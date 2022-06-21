@@ -48,10 +48,12 @@ class Dynmap(commands.Cog):
       'render_min_radius': 100,
       'render_max_radius': 300,
       'render_max_dimension': 30000,
+      'render_queue_size': 3,
       'web_host': None,
       'web_map': 'flat',
       'web_zoom': 6,
       'web_y': 64,
+      'queued_render_start_delay_in_seconds': 3,
       'elapsed_time_interval_in_seconds': 5,
       'cancellation_check_interval_in_seconds': 1,
       'auth_timeout_in_seconds': 10,
@@ -130,7 +132,7 @@ class Dynmap(commands.Cog):
   @dynmap_config.group(name='render')
   @checks.admin_or_permissions()
   async def dynmap_config_render(self, ctx: commands.Context):
-    """Configures dynmap render settings."""
+    """Configures Dynmap render settings."""
     if ctx.invoked_subcommand is None:
       pass
 
@@ -169,40 +171,61 @@ class Dynmap(commands.Cog):
     await self.config.guild(ctx.guild).render_max_dimension.set(dimension)
     await ctx.send(f'Maximum X and Z coordinate set to `{dimension}`.')
 
+  @dynmap_config_render.command(name='queue_size')
+  @checks.admin_or_permissions()
+  async def dynmap_config_render_queue_size(self, ctx: commands.Context, size: int):
+    """Sets the maximum number of renders that can be queued, including the currently running render."""
+    await self.config.guild(ctx.guild).render_queue_size.set(size)
+    await ctx.send(f'Render queue size set to `{size}`.')
+
   @dynmap_config.group(name='web')
   @checks.admin_or_permissions()
   async def dynmap_config_web(self, ctx: commands.Context):
-    """Configures dynmap web settings."""
+    """Configures Dynmap web settings."""
     if ctx.invoked_subcommand is None:
       pass
 
   @dynmap_config_web.command(name='host')
   @checks.admin_or_permissions()
   async def dynmap_config_web_host(self, ctx: commands.Context, host: str):
-    """Sets the dynmap host URL used in the embed link."""
+    """Sets the Dynmap host URL used in the embed link."""
     await self.config.guild(ctx.guild).web_host.set(host)
     await ctx.send(f'Dynmap host URL set to `{host}`.')
 
   @dynmap_config_web.command(name='map')
   @checks.admin_or_permissions()
   async def dynmap_config_web_map(self, ctx: commands.Context, map: str):
-    """Sets the dynmap map name used in the embed link."""
+    """Sets the Dynmap map name used in the embed link."""
     await self.config.guild(ctx.guild).web_map.set(map)
     await ctx.send(f'Dynmap map name set to `{map}`.')
 
   @dynmap_config_web.command(name='zoom')
   @checks.admin_or_permissions()
   async def dynmap_config_web_zoom(self, ctx: commands.Context, zoom: int):
-    """Sets the dynmap zoom level used in the embed link."""
+    """Sets the Dynmap zoom level used in the embed link."""
     await self.config.guild(ctx.guild).web_zoom.set(zoom)
     await ctx.send(f'Dynmap zoom level set to `{zoom}`.')
 
   @dynmap_config_web.command(name='y')
   @checks.admin_or_permissions()
   async def dynmap_config_web_y(self, ctx: commands.Context, y: int):
-    """Sets the dynmap Y coordinate used in the embed link."""
+    """Sets the Dynmap Y coordinate used in the embed link."""
     await self.config.guild(ctx.guild).web_y.set(y)
     await ctx.send(f'Dynmap Y coordinate set to `{y}`.')
+
+  @dynmap_config.group(name='delay')
+  @checks.admin_or_permissions()
+  async def dynmap_config_delay(self, ctx: commands.Context):
+    """Configures delay settings."""
+    if ctx.invoked_subcommand is None:
+      pass
+
+  @dynmap_config_delay.command(name='queued_render_start')
+  @checks.admin_or_permissions()
+  async def dynmap_config_delay_queued_render_start(self, ctx: commands.Context, delay: int):
+    """Sets the number of seconds for a queued render to wait after the current render has finished."""
+    await self.config.guild(ctx.guild).queue_render_delay_in_seconds.set(delay)
+    await ctx.send(f'Queued render delay set to `{delay}` seconds.')
 
   @dynmap_config.group(name='interval')
   @checks.admin_or_permissions()
@@ -216,14 +239,14 @@ class Dynmap(commands.Cog):
   async def dynmap_config_interval_elapsed(self, ctx: commands.Context, interval: int):
     """While a render is in progress, update the elapsed time every X seconds."""
     await self.config.guild(ctx.guild).elapsed_time_interval_in_seconds.set(interval)
-    await ctx.send(f'Elapsed time interval set to `{interval}`.')
+    await ctx.send(f'Elapsed time interval set to `{interval}` seconds.')
 
   @dynmap_config_interval.command(name='cancel')
   @checks.admin_or_permissions()
   async def dynmap_config_interval_cancel(self, ctx: commands.Context, interval: int):
     """While a render is in progress, check if a cancellation has been requested every X seconds."""
     await self.config.guild(ctx.guild).cancellation_check_interval_in_seconds.set(interval)
-    await ctx.send(f'Cancellation check time interval set to `{interval}`.')
+    await ctx.send(f'Cancellation check time interval set to `{interval}` seconds.')
 
   @dynmap_config.group(name='timeout')
   @checks.admin_or_permissions()
@@ -237,21 +260,21 @@ class Dynmap(commands.Cog):
   async def dynmap_config_timeout_auth(self, ctx: commands.Context, timeout: int):
     """Sets the maximum number of seconds to wait for a successful response after sending a websocket authentication request.'."""
     await self.config.guild(ctx.guild).auth_timeout_in_seconds.set(timeout)
-    await ctx.send(f'Auth timeout set to `{timeout}`.')
+    await ctx.send(f'Auth timeout set to `{timeout}` seconds.')
 
   @dynmap_config_timeout.command(name='command')
   @checks.admin_or_permissions()
   async def dynmap_config_timeout_command(self, ctx: commands.Context, timeout: int):
     """Sets the maximum number of seconds to wait for a console response after starting or cancelling a dynmap render."""
     await self.config.guild(ctx.guild).command_timeout_in_seconds.set(timeout)
-    await ctx.send(f'Command timeout set to `{timeout}`.')
+    await ctx.send(f'Command timeout set to `{timeout}` seconds.')
 
   @dynmap_config_timeout.command(name='render')
   @checks.admin_or_permissions()
   async def dynmap_config_timeout_render(self, ctx: commands.Context, timeout: int):
     """Sets the maximum number of seconds to wait for a console message indicating that a dynmap render has finished."""
     await self.config.guild(ctx.guild).render_timeout_in_seconds.set(timeout)
-    await ctx.send(f'Render timeout set to `{timeout}`.')
+    await ctx.send(f'Render timeout set to `{timeout}` seconds.')
 
   @dynmap.command(name='clear_queue')
   @checks.admin_or_permissions()
@@ -262,12 +285,13 @@ class Dynmap(commands.Cog):
 
   @dynmap.command(name='render')
   async def dynmap_render(self, ctx: commands.Context, x: int, z: int, radius: int = None):
-    """Starts a dynmap radius render centered on the specified coordinates."""
+    """Starts a Dynmap radius render centered on the specified coordinates."""
     world = await self.config.guild(ctx.guild).render_world()
     default_radius = await self.config.guild(ctx.guild).render_default_radius()
     min_radius = await self.config.guild(ctx.guild).render_min_radius()
     max_radius = await self.config.guild(ctx.guild).render_max_radius()
     max_dimension = await self.config.guild(ctx.guild).render_max_dimension()
+    queue_size = await self.config.guild(ctx.guild).render_queue_size()
 
     this_render = None
 
@@ -297,8 +321,8 @@ class Dynmap(commands.Cog):
               'cancelling_user_id': None
             }
             async with self.config.guild(ctx.guild).render_queue() as render_queue:
-              # TODO: Fail if queue is full
-              # raise RenderFailedError('A dynmap render is already running. Please try again in a few minutes.')
+              if len(render_queue) >= queue_size:
+                raise RenderFailedError('Render queue is full. Please wait for a render to complete and try again.')
               render_queue.append(this_render)
 
             await self.start_dynmap_render(
@@ -438,6 +462,7 @@ class Dynmap(commands.Cog):
     radius: int):
 
     world = await self.config.guild(ctx.guild).render_world()
+    queued_render_start_delay_in_seconds = await self.config.guild(ctx.guild).queued_render_start_delay_in_seconds()
     command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
     render_timeout_in_seconds = await self.config.guild(ctx.guild).render_timeout_in_seconds()
 
@@ -506,8 +531,8 @@ class Dynmap(commands.Cog):
         if console_result == ConsoleResponseResult.TIMEOUT:
           raise RenderTimeoutError('Waited too long for the current render to finish or be cancelled.')
 
-        # Wait a second to let the previous render remove itself from the queue, then try to start the render again
-        await sleep(1)
+        # Wait a few seconds to let the previous render remove itself from the queue, then try to start the render again
+        await sleep(queued_render_start_delay_in_seconds)
 
       else:
         raise RenderTimeoutError('Did not receive a response when starting the render.')
