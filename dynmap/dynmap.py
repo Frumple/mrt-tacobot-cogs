@@ -25,7 +25,7 @@ class RenderTimeoutError(Exception):
   pass
 
 class Dynmap(commands.Cog):
-  """Allows users to run dynmap radius renders from Discord."""
+  """Allows users to run Dynmap radius renders on a Minecraft server hosted on Pterodactyl."""
 
   CONSOLE_MESSAGE_RENDER_STARTED = 'Render of {radius} block radius starting on world \'{world}\'...'
   CONSOLE_MESSAGE_RENDER_ALREADY_RUNNING = 'Radius render of world \'{world}\' already active.'
@@ -139,7 +139,7 @@ class Dynmap(commands.Cog):
   @dynmap_config_render.command(name='world')
   @checks.admin_or_permissions()
   async def dynmap_config_render_world(self, ctx: commands.Context, world: str):
-    """Sets the world to render."""
+    """Sets the Minecraft world to render."""
     await self.config.guild(ctx.guild).render_world.set(world)
     await ctx.send(f'Render world set to `{world}`.')
 
@@ -265,21 +265,21 @@ class Dynmap(commands.Cog):
   @dynmap_config_timeout.command(name='command')
   @checks.admin_or_permissions()
   async def dynmap_config_timeout_command(self, ctx: commands.Context, timeout: int):
-    """Sets the maximum number of seconds to wait for a console response after starting or cancelling a dynmap render."""
+    """Sets the maximum number of seconds to wait for a console response after starting or cancelling a Dynmap render."""
     await self.config.guild(ctx.guild).command_timeout_in_seconds.set(timeout)
     await ctx.send(f'Command timeout set to `{timeout}` seconds.')
 
   @dynmap_config_timeout.command(name='render')
   @checks.admin_or_permissions()
   async def dynmap_config_timeout_render(self, ctx: commands.Context, timeout: int):
-    """Sets the maximum number of seconds to wait for a console message indicating that a dynmap render has finished."""
+    """Sets the maximum number of seconds to wait for a console message indicating that a Dynmap render has finished."""
     await self.config.guild(ctx.guild).render_timeout_in_seconds.set(timeout)
     await ctx.send(f'Render timeout set to `{timeout}` seconds.')
 
   @dynmap.command(name='clear_queue')
   @checks.admin_or_permissions()
   async def dynmap_clear_queue(self, ctx: commands.Context):
-    """Clears the internal queue of dynmap renders. Caution: Will likely cause any currently running or queued renders to fail."""
+    """Clears the internal queue of Dynmap renders. Caution: Will likely cause any currently running or queued renders to fail."""
     await self.config.guild(ctx.guild).render_queue.clear()
     await ctx.send('Render queue cleared.')
 

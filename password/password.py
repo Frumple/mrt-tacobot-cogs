@@ -2,7 +2,7 @@ from redbot.core import Config, commands, checks
 from discord.errors import Forbidden
 
 class Password(commands.Cog):
-  """Allows users to obtain passwords for accessing external services."""
+  """Allows users to obtain access passwords for external services."""
 
   def __init__(self):
     default_guild = {
