@@ -85,7 +85,7 @@ If a render is started while another render is already running, the render will 
 
 ### Cancelling renders
 
-A render that is running or queued can be cancelled by reacting to the bot's message with the "stop button" emoji ( &#23F9; ). Only the user who initiated the render, or a staff member with Red-DiscordBot mod permissions or above may cancel the render.
+A render that is running or queued can be cancelled by reacting to the bot's message with the "stop button" emoji ( :stop_button: ). Only the user who initiated the render, or a staff member with Red-DiscordBot mod permissions or above may cancel the render.
 
 # Password
 
