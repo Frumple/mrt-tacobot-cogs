@@ -502,8 +502,14 @@ class Dynmap(commands.Cog):
         )
         return
 
-      # If another render is already running, wait for it to finish or be cancelled, then try to start the render again
+      # If another render is already running...
       elif start_render_result == ConsoleResponseResult.FAILURE:
+
+        # ...and the other render was initiated in-game and not through the bot, fail this render immediately
+        if render_queue[0]['message_id'] == this_render['message_id']:
+          raise RenderFailedError('An in-game render is currently running. Please try again in a few minutes.')
+
+        # Otherwise, wait for the other render to finish or be cancelled, then try to start this render again
         await self.update_status_message(message, embed,
           title = 'Dynmap Render Queued',
           color = Color.blue(),
