@@ -101,6 +101,20 @@ class Dynmap(commands.Cog):
     if ctx.invoked_subcommand is None:
       pass
 
+  @dynmap_config.command(name='get_all')
+  @checks.admin_or_permissions()
+  async def dynmap_config_get_all(self, ctx: commands.Context):
+    """Displays all settings."""
+    async with self.config.guild(ctx.guild).all() as settings:
+      output = '{:<40} | {:<40}\n'.format('Key', 'Value')
+      for key, value in settings.items():
+        if key in ['pterodactyl_api_key', 'pterodactyl_server_id']:
+          value = '<redacted>'
+        if isinstance(value, str) or isinstance(value, int):
+          output += '{:<40} | {:<40}\n'.format(key, value)
+      output = f'```{output}```'
+      await ctx.send(output)
+
   @dynmap_config.group(name='pterodactyl')
   @checks.admin_or_permissions()
   async def dynmap_config_pterodactyl(self, ctx: commands.Context):
