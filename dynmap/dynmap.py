@@ -6,9 +6,12 @@ from functools import reduce
 from http.client import HTTPException
 from redbot.core import Config, commands, checks
 from redbot.core.bot import Red
+from redbot.core.utils.chat_formatting import pagify
 from redbot.core.utils.mod import is_mod_or_superior
 from timeit import default_timer as timer
 from urllib.parse import urljoin
+
+import re
 
 class ConsoleResponseResult(Enum):
   SUCCESS = 1
@@ -27,6 +30,9 @@ class RenderTimeoutError(Exception):
 class Dynmap(commands.Cog):
   """Allows users to run Dynmap radius renders on a Minecraft server hosted on Pterodactyl."""
 
+  CONSOLE_MESSAGE_ENTITY_DATA_RETURNED = '{player} has the following entity data:'
+  CONSOLE_MESSAGE_NO_ENTITY_FOUND = 'No entity was found'
+
   CONSOLE_MESSAGE_RENDER_STARTED = 'Render of {radius} block radius starting on world \'{world}\'...'
   CONSOLE_MESSAGE_RENDER_ALREADY_RUNNING = 'Radius render of world \'{world}\' already active.'
   CONSOLE_MESSAGE_RENDER_FINISHED = 'Radius render of \'{world}\' finished.'
@@ -44,10 +50,11 @@ class Dynmap(commands.Cog):
       'pterodactyl_api_key': None,
       'pterodactyl_server_id': None,
       'render_world': 'new',
+      'render_dimension': 'overworld',
       'render_default_radius': 300,
       'render_min_radius': 100,
       'render_max_radius': 300,
-      'render_max_dimension': 30000,
+      'render_max_coordinate': 30000,
       'render_queue_size': 3,
       'web_host': None,
       'web_map': 'flat',
@@ -112,8 +119,8 @@ class Dynmap(commands.Cog):
           value = '<redacted>'
         if isinstance(value, str) or isinstance(value, int):
           output += '{:<40} | {:<40}\n'.format(key, value)
-      output = f'```{output}```'
-      await ctx.send(output)
+      for page in pagify(output):
+        await ctx.send(f'```{page}```')
 
   @dynmap_config.group(name='pterodactyl')
   @checks.admin_or_permissions()
@@ -157,6 +164,13 @@ class Dynmap(commands.Cog):
     await self.config.guild(ctx.guild).render_world.set(world)
     await ctx.send(f'Render world set to `{world}`.')
 
+  @dynmap_config_render.command(name='dimension')
+  @checks.admin_or_permissions()
+  async def dynmap_config_render_dimension(self, ctx: commands.Context, dimension: str):
+    """Sets the Minecraft dimension to render. This is usually the same as the world, except if the dimension is 'overworld'."""
+    await self.config.guild(ctx.guild).render_dimension.set(dimension)
+    await ctx.send(f'Render dimension set to `{dimension}`.')
+
   @dynmap_config_render.command(name='default_radius')
   @checks.admin_or_permissions()
   async def dynmap_config_render_default_radius(self, ctx: commands.Context, radius: int):
@@ -178,12 +192,12 @@ class Dynmap(commands.Cog):
     await self.config.guild(ctx.guild).render_max_radius.set(radius)
     await ctx.send(f'Maximum render radius set to `{radius}`.')
 
-  @dynmap_config_render.command(name='dimension')
+  @dynmap_config_render.command(name='max_coordinate')
   @checks.admin_or_permissions()
-  async def dynmap_config_render_dimension(self, ctx: commands.Context, dimension: int):
+  async def dynmap_config_render_max_coordinate(self, ctx: commands.Context, coordinate: int):
     """Sets the maximum X and Z coordinate that can be specified for the center of the radius render."""
-    await self.config.guild(ctx.guild).render_max_dimension.set(dimension)
-    await ctx.send(f'Maximum X and Z coordinate set to `{dimension}`.')
+    await self.config.guild(ctx.guild).render_max_coordinate.set(coordinate)
+    await ctx.send(f'Maximum X and Z coordinate set to `{coordinate}`.')
 
   @dynmap_config_render.command(name='queue_size')
   @checks.admin_or_permissions()
@@ -298,97 +312,137 @@ class Dynmap(commands.Cog):
     await ctx.send('Render queue cleared.')
 
   @dynmap.command(name='render')
-  async def dynmap_render(self, ctx: commands.Context, x: int, z: int, radius: int = None):
+  async def dynmap_render(self, ctx: commands.Context, param1: str, param2: int = None, param3: int = None):
     """Starts a Dynmap radius render centered on the specified coordinates."""
     world = await self.config.guild(ctx.guild).render_world()
+    dimension = await self.config.guild(ctx.guild).render_dimension()
     default_radius = await self.config.guild(ctx.guild).render_default_radius()
     min_radius = await self.config.guild(ctx.guild).render_min_radius()
     max_radius = await self.config.guild(ctx.guild).render_max_radius()
-    max_dimension = await self.config.guild(ctx.guild).render_max_dimension()
+    max_coordinate = await self.config.guild(ctx.guild).render_max_coordinate()
     queue_size = await self.config.guild(ctx.guild).render_queue_size()
 
     this_render = None
 
+    x = None
+    z = None
+    radius = None
+
+    embed = self.create_embed(ctx)
+    message = await ctx.send(embed = embed)
+
     try:
-      try:
-        if radius is None:
-          radius = default_radius
+      async with ClientSession() as session:
+        ws_socket, ws_token = await self.get_websocket_credentials(ctx, session)
 
-        embed_url = await self.get_embed_url(ctx, x, z, world)
-        embed = self.create_embed(ctx, embed_url, radius, x, z)
-        message = await ctx.send(embed = embed)
+        async with session.ws_connect(ws_socket) as ws:
+          await self.authenticate_websocket(ctx, ws, ws_token)
 
-        if x > max_dimension or x < -max_dimension or z > max_dimension or z < -max_dimension:
-          raise RenderFailedError(f'X and Z coordinates must be between `-{max_dimension}` and `{max_dimension}`.')
-        if radius < min_radius or radius > max_radius:
-          raise RenderFailedError(f'Radius must be between `{min_radius}` and `{max_radius}`.')
+          # If the 1st parameter is a number, treat it as the X coordinate.
+          # The 2nd parameter / Z coordinate must also be specified.
+          if param1.isnumeric():
+            if param2 is None:
+              raise RenderFailedError('The Z coordinate must be specified.')
 
-        async with ClientSession() as session:
-          ws_socket, ws_token = await self.get_websocket_credentials(ctx, session)
+            x = int(param1)
+            z = param2
+            radius = param3 if param3 is not None else default_radius
 
-          async with session.ws_connect(ws_socket) as ws:
-            await self.authenticate_websocket(ctx, ws, ws_token)
-
-            this_render = {
-              'user_id': ctx.author.id,
-              'message_id': message.id,
-              'cancelling_user_id': None
-            }
-            async with self.config.guild(ctx.guild).render_queue() as render_queue:
-              if len(render_queue) >= queue_size:
-                raise RenderFailedError('Render queue is full. Please wait for a render to complete and try again.')
-              render_queue.append(this_render)
-
-            await self.start_dynmap_render(
+          # Otherwise, treat the 1st parameter as the player name.
+          # Run "/data get entity" commands to get the current dimension and X,Z coordinates of the player.
+          else:
+            player_dimension = await self.get_player_dimension(
               ctx,
               session,
               ws,
               message,
               embed,
               this_render,
-              x,
-              z,
-              radius)
+              param1
+            )
 
-            elapsed_time_in_seconds = await self.dynmap_render_in_progress(
+            if player_dimension != dimension:
+              raise RenderFailedError(f'Player `{param1}` must be in world `{world}` to start the render.')
+
+            x, z = await self.get_player_coordinates(
               ctx,
               session,
               ws,
               message,
               embed,
-              this_render)
-            elapsed_time_formatted = self.format_time(elapsed_time_in_seconds)
-
-            await self.update_status_message(message, embed,
-              title = 'Dynmap Render Complete',
-              color = Color.green(),
-              description = f'Time elapsed: {elapsed_time_formatted}',
-              reaction = self.UNICODE_WHITE_CHECK_MARK
+              this_render,
+              param1
             )
+            radius = param2 if param2 is not None else default_radius
 
-      except RenderCancelledError as ex:
-        await self.update_status_message(message, embed,
-          title = 'Dynmap Render Cancelled',
-          color = Color.red(),
-          description = f'{ex}',
-          reaction = self.UNICODE_X
-        )
+          embed_url = await self.get_embed_url(ctx, x, z, world)
+          self.init_embed(ctx, embed, embed_url, x, z, radius)
 
-      except RenderFailedError as ex:
-        await self.update_status_message(message, embed,
-          title = 'Dynmap Render Failed',
-          color = Color.red(),
-          description = f'Error: {ex}',
-          reaction = self.UNICODE_X
-        )
+          if x > max_coordinate or x < -max_coordinate or z > max_coordinate or z < -max_coordinate:
+            raise RenderFailedError(f'X and Z coordinates must be between `-{max_coordinate}` and `{max_coordinate}`.')
+          if radius < min_radius or radius > max_radius:
+            raise RenderFailedError(f'Radius must be between `{min_radius}` and `{max_radius}`.')
 
-      except RenderTimeoutError as ex:
-        await self.update_status_message(message, embed,
-          title = 'Dynmap Render Timeout',
-          color = Color.red(),
-          description = f'Error: {ex}',
-          reaction = self.UNICODE_X
-        )
+          this_render = {
+            'user_id': ctx.author.id,
+            'message_id': message.id,
+            'cancelling_user_id': None
+          }
+          async with self.config.guild(ctx.guild).render_queue() as render_queue:
+            if len(render_queue) >= queue_size:
+              raise RenderFailedError('Render queue is full. Please wait for a render to complete and try again.')
+            render_queue.append(this_render)
+
+          await self.start_dynmap_render(
+            ctx,
+            session,
+            ws,
+            message,
+            embed,
+            this_render,
+            x,
+            z,
+            radius)
+
+          elapsed_time_in_seconds = await self.dynmap_render_in_progress(
+            ctx,
+            session,
+            ws,
+            message,
+            embed,
+            this_render)
+          elapsed_time_formatted = self.format_time(elapsed_time_in_seconds)
+
+          await self.update_status_message(message, embed,
+            title = 'Dynmap Render Complete',
+            color = Color.green(),
+            description = f'Time elapsed: {elapsed_time_formatted}',
+            reaction = self.UNICODE_WHITE_CHECK_MARK
+          )
+
+    except RenderCancelledError as ex:
+      await self.update_status_message(message, embed,
+        title = 'Dynmap Render Cancelled',
+        color = Color.red(),
+        description = f'{ex}',
+        reaction = self.UNICODE_X
+      )
+
+    except RenderFailedError as ex:
+      await self.update_status_message(message, embed,
+        title = 'Dynmap Render Failed',
+        color = Color.red(),
+        description = f'Error: {ex}',
+        reaction = self.UNICODE_X
+      )
+
+    except RenderTimeoutError as ex:
+      await self.update_status_message(message, embed,
+        title = 'Dynmap Render Timeout',
+        color = Color.red(),
+        description = f'Error: {ex}',
+        reaction = self.UNICODE_X
+      )
 
     except HTTPException as ex:
       await ctx.send('Error: Unable to edit render status message.')
@@ -464,6 +518,98 @@ class Dynmap(commands.Cog):
 
     raise RenderTimeoutError('Timed out while authenticating websocket.')
 
+  async def get_player_dimension(self,
+    ctx: commands.Context,
+    session: ClientSession,
+    ws: ClientWebSocketResponse,
+    message: Message,
+    embed: Embed,
+    this_render: dict,
+    player_name: str):
+
+    command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
+
+    dimension_command = f'data get entity {player_name} Dimension'
+    dimension_request_json = self.create_command_request_json(dimension_command)
+
+    await ws.send_json(dimension_request_json)
+
+    success_response = self.CONSOLE_MESSAGE_ENTITY_DATA_RETURNED.format(player = player_name)
+    failure_response = self.CONSOLE_MESSAGE_NO_ENTITY_FOUND
+
+    dimension_result, dimension_output = await self.wait_for_console_response(
+      ctx,
+      session,
+      ws,
+      message,
+      embed,
+      this_render,
+      command_timeout_in_seconds,
+      success_response = success_response,
+      failure_response = failure_response
+    )
+
+    dimension_output = self.strip_ansi_control_sequences(dimension_output)
+
+    if dimension_result == ConsoleResponseResult.SUCCESS:
+      regex = r'"minecraft:(?P<dimension>.+)"'
+      match = re.search(regex, dimension_output)
+      if match:
+        return match.group('dimension')
+      else:
+        raise RenderFailedError(f'Received an invalid response when retrieving current world for player `{player_name}`.')
+    elif dimension_result == ConsoleResponseResult.FAILURE:
+      raise RenderFailedError(f'Player `{player_name}` is currently not on the Minecraft server.')
+    else:
+      raise RenderTimeoutError(f'Did not receive a response when retrieving current world for player `{player_name}`.')
+
+  async def get_player_coordinates(self,
+    ctx: commands.Context,
+    session: ClientSession,
+    ws: ClientWebSocketResponse,
+    message: Message,
+    embed: Embed,
+    this_render: dict,
+    player_name: str):
+
+    command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
+
+    position_command = f'data get entity {player_name} Pos'
+    position_request_json = self.create_command_request_json(position_command)
+
+    await ws.send_json(position_request_json)
+
+    success_response = self.CONSOLE_MESSAGE_ENTITY_DATA_RETURNED.format(player = player_name)
+    failure_response = self.CONSOLE_MESSAGE_NO_ENTITY_FOUND
+
+    position_result, position_output = await self.wait_for_console_response(
+      ctx,
+      session,
+      ws,
+      message,
+      embed,
+      this_render,
+      command_timeout_in_seconds,
+      success_response = success_response,
+      failure_response = failure_response
+    )
+
+    position_output = self.strip_ansi_control_sequences(position_output)
+
+    if position_result == ConsoleResponseResult.SUCCESS:
+      regex = r'\[(?P<x>-?\d+.\d+)d, (?P<y>-?\d+.\d+)d, (?P<z>-?\d+.\d+)d\]'
+      match = re.search(regex, position_output)
+      if match:
+        x = int(float(match.group('x')))
+        z = int(float(match.group('z')))
+        return x, z
+      else:
+        raise RenderFailedError(f'Received an invalid response when retrieving current coordinates for player `{player_name}`.')
+    elif position_result == ConsoleResponseResult.FAILURE:
+      raise RenderFailedError(f'Player `{player_name}` is currently not on the Minecraft server.')
+    else:
+      raise RenderTimeoutError(f'Did not receive a response when retrieving current coordinates for player `{player_name}`.')
+
   async def start_dynmap_render(self,
     ctx: commands.Context,
     session: ClientSession,
@@ -494,7 +640,7 @@ class Dynmap(commands.Cog):
           success_response = self.CONSOLE_MESSAGE_RENDER_STARTED.format(radius = radius, world = world)
           failure_response = self.CONSOLE_MESSAGE_RENDER_ALREADY_RUNNING.format(world = world)
 
-          start_render_result = await self.wait_for_console_response(
+          start_render_result, start_render_output = await self.wait_for_console_response(
             ctx,
             session,
             ws,
@@ -535,7 +681,7 @@ class Dynmap(commands.Cog):
         success_response = self.CONSOLE_MESSAGE_RENDER_FINISHED.format(world = world)
         failure_response = self.CONSOLE_MESSAGE_RENDER_CANCELLED.format(world = world)
 
-        console_result = await self.wait_for_console_response(
+        console_result, console_output = await self.wait_for_console_response(
           ctx,
           session,
           ws,
@@ -573,7 +719,7 @@ class Dynmap(commands.Cog):
 
     start_time_in_seconds = timer()
 
-    console_result = await self.wait_for_console_response(
+    console_result, console_output = await self.wait_for_console_response(
       ctx,
       session,
       ws,
@@ -603,7 +749,7 @@ class Dynmap(commands.Cog):
     cancelling_user: User,
     run_command_when_cancelled: bool):
 
-    result = ConsoleResponseResult.SUCCESS
+    cancel_render_result = ConsoleResponseResult.SUCCESS
 
     if run_command_when_cancelled:
       world = await self.config.guild(ctx.guild).render_world()
@@ -616,7 +762,7 @@ class Dynmap(commands.Cog):
 
       success_response = self.CONSOLE_MESSAGE_RENDER_CANCELLED.format(world = world)
 
-      result = await self.wait_for_console_response(
+      cancel_render_result, cancel_render_output = await self.wait_for_console_response(
         ctx,
         session,
         ws,
@@ -626,7 +772,7 @@ class Dynmap(commands.Cog):
         command_timeout_in_seconds,
         success_response = success_response)
 
-    if result == ConsoleResponseResult.SUCCESS:
+    if cancel_render_result == ConsoleResponseResult.SUCCESS:
       raise RenderCancelledError(f'Cancelled by {cancelling_user.mention}.')
     else:
       raise RenderTimeoutError('Did not receive a response when cancelling the render.')
@@ -667,11 +813,11 @@ class Dynmap(commands.Cog):
       elapsed_time_in_seconds = int(current_time_in_seconds - start_time_in_seconds)
 
       if console_output:
-        if success_response and success_response in console_output:
-          return ConsoleResponseResult.SUCCESS
+        if success_response and success_response.casefold() in console_output.casefold():
+          return ConsoleResponseResult.SUCCESS, console_output
 
-        if failure_response and failure_response in console_output:
-          return ConsoleResponseResult.FAILURE
+        if failure_response and failure_response.casefold() in console_output.casefold():
+          return ConsoleResponseResult.FAILURE, console_output
 
       # If elapsed time is shown, update it in the description every 5 seconds
       if show_elapsed_time:
@@ -710,7 +856,7 @@ class Dynmap(commands.Cog):
             else:
               raise RenderFailedError('Render is missing from the render queue.')
 
-    return ConsoleResponseResult.TIMEOUT
+    return ConsoleResponseResult.TIMEOUT, None
 
   # Processes incoming events from the Pterodactyl API websocket.
   # Ensures that the websocket token is re-authenticated when it is expiring or expired.
@@ -764,14 +910,20 @@ class Dynmap(commands.Cog):
       await message.add_reaction(reaction)
 
   @staticmethod
-  def create_embed(ctx, url: str, radius: int, x: int, z: int):
+  def create_embed(ctx):
     embed = Embed(
       color = Color.light_grey(),
       title = 'Dynmap Render Initializing',
-      description = 'Please wait...',
-      url = url)
+      description = 'Please wait...')
 
     embed.set_author(name = ctx.author.display_name, icon_url = ctx.author.avatar_url)
+
+    return embed
+
+  @staticmethod
+  def init_embed(ctx, embed: Embed, url: str, x: int, z: int, radius: int):
+    embed.url = url
+
     embed.add_field(name = 'X', value = x, inline = True)
     embed.add_field(name = 'Z', value = z, inline = True)
     embed.add_field(name = 'Radius', value = radius, inline = True)
@@ -794,3 +946,7 @@ class Dynmap(commands.Cog):
   @staticmethod
   def find_index_and_render_with_matching_message_id(render_queue, message_id):
     return next(((i, v) for (i, v) in enumerate(render_queue) if v['message_id'] == message_id), (None, None))
+
+  @staticmethod
+  def strip_ansi_control_sequences(s):
+    return re.sub(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]', '', s)
