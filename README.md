@@ -52,6 +52,7 @@ You may also configure the following settings to your preference, by running `[p
 | Submenu    | Setting               | Description                                                                                                            | Default Value |
 |------------|-----------------------|------------------------------------------------------------------------------------------------------------------------|---------------|
 | `render`   | `world`               | Sets the Minecraft world to render.                                                                                    | `new`         |
+| `render`   | `dimension`           | Sets the Minecraft dimension to render. This is usually the same as the world, except if the dimension is 'overworld'. | `overworld`   |
 | `render`   | `default_radius`      | Sets the default render radius (when radius is not specified in the render command).                                   | `300`         |
 | `render`   | `min_radius`          | Sets the minimum render radius.                                                                                        | `100`         |
 | `render`   | `max_radius`          | Sets the maximum render radius.                                                                                        | `300`         |
@@ -79,9 +80,19 @@ Start a dynmap radius render with the specified X and Z coordinates, and specifi
 
 `[p]dynmap render <X> <Z> <radius>`
 
+Start a dynmap radius render centred on a player currently on the Minecraft server, using the default radius:
+
+`[p]dynmap render <player_name>`
+
+Start a dynmap radius render centred on a player currently on the Minecraft server, using a specified radius:
+
+`[p]dynmap render <player_name> <radius>`
+
 ### Queueing renders
 
-If a render is started while another render is already running, the render will queue until the renders ahead of it are completed or cancelled. If the queue is full, the render will immediately fail.
+If a render is started by the bot while another render is already running, the following will happen:
+- If the currently running render was started by the bot, the new render will queue until the renders ahead of it are completed or cancelled. If the queue is full, the render will immediately fail.
+- If the currently running render was started in-game using the `/dynmap` command, the new render will immediately fail. You will need to wait until the running render is complete before starting the new render.
 
 ### Cancelling renders
 
