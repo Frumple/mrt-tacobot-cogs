@@ -338,9 +338,9 @@ class Dynmap(commands.Cog):
         async with session.ws_connect(ws_socket) as ws:
           await self.authenticate_websocket(ctx, ws, ws_token)
 
-          # If the 1st parameter is a number, treat it as the X coordinate.
+          # If the 1st parameter is an integer, treat it as the X coordinate.
           # The 2nd parameter / Z coordinate must also be specified.
-          if param1.isnumeric():
+          if self.isinteger(param1):
             if param2 is None:
               raise RenderFailedError('The Z coordinate must be specified.')
 
@@ -946,6 +946,10 @@ class Dynmap(commands.Cog):
   @staticmethod
   def find_index_and_render_with_matching_message_id(render_queue, message_id):
     return next(((i, v) for (i, v) in enumerate(render_queue) if v['message_id'] == message_id), (None, None))
+
+  @staticmethod
+  def isinteger(s):
+    return s[1:].isnumeric() if s[0] == '-' else s.isnumeric()
 
   @staticmethod
   def strip_ansi_control_sequences(s):
