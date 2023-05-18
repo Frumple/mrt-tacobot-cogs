@@ -348,6 +348,10 @@ class Dynmap(commands.Cog):
             z = param2
             radius = param3 if param3 is not None else default_radius
 
+          # If the 1st parameter contains any commas, fail the render.
+          elif ',' in param1:
+            raise RenderFailedError('Parameters must not contain commas.')
+
           # Otherwise, treat the 1st parameter as the player name.
           # Run "/data get entity" commands to get the current dimension and X,Z coordinates of the player.
           else:
