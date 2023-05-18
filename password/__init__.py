@@ -1,4 +1,4 @@
 from .password import Password
 
-def setup(bot):
-  bot.add_cog(Password())
+async def setup(bot):
+  await bot.add_cog(Password())

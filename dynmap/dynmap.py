@@ -894,7 +894,7 @@ class Dynmap(commands.Cog):
     title: str = None,
     color: Color = None,
     description: str = None,
-    footer: str = Embed.Empty,
+    footer: str = None,
     reaction: str = None):
 
     embed.title = title
@@ -916,7 +916,7 @@ class Dynmap(commands.Cog):
       title = 'Dynmap Render Initializing',
       description = 'Please wait...')
 
-    embed.set_author(name = ctx.author.display_name, icon_url = ctx.author.avatar_url)
+    embed.set_author(name = ctx.author.display_name, icon_url = ctx.author.avatar)
 
     return embed
 
