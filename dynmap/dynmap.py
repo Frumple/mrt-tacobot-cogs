@@ -1,17 +1,45 @@
 from aiohttp import ClientSession, ClientWebSocketResponse
 from asyncio import sleep
-from discord import Color, Embed, Message, Reaction, User
+from discord import Color, Embed, Interaction, Message, Reaction, User
 from enum import Enum
 from functools import reduce
 from http.client import HTTPException
-from redbot.core import Config, commands, checks
+from redbot.core import Config, app_commands, commands, checks
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import pagify
 from redbot.core.utils.mod import is_mod_or_superior
 from timeit import default_timer as timer
+from typing import List, Tuple
 from urllib.parse import urljoin
 
 import re
+
+# If these constants are changed, restart the bot and run "[p]slash sync" to update the slash commands with the new limits.
+MAX_COORDINATE = 30000
+MIN_RADIUS = 100
+MAX_RADIUS = 300
+
+class AppCommandHelpers:
+  def get_dimension_range() -> app_commands.Range:
+    return app_commands.Range[int, -MAX_COORDINATE, MAX_COORDINATE]
+
+  def get_radius_range() -> app_commands.Range:
+    return app_commands.Range[int, MIN_RADIUS, MAX_RADIUS]
+
+# Discord bug?: Autocomplete options fail to load in Discord when using integers, but they do load for strings.
+# async def radius_autocomplete(interaction: Interaction, current: int) -> List[app_commands.Choice[int]]:
+#   radii = [100, 150, 200, 250, 300]
+#   return [
+#     app_commands.Choice(name = radius, value = radius)
+#     for radius in radii if current in radius
+#   ]
+
+async def radius_autocomplete(interaction: Interaction, current: str) -> List[app_commands.Choice[str]]:
+  radii = ['100', '150', '200', '250', '300']
+  return [
+    app_commands.Choice(name = radius, value = radius)
+    for radius in radii if current in radius
+  ]
 
 class ConsoleResponseResult(Enum):
   SUCCESS = 1
@@ -45,16 +73,13 @@ class Dynmap(commands.Cog):
   def __init__(self, bot: Red):
     self.bot = bot
 
-    default_guild = {
+    default_config = {
       'pterodactyl_api_host': None,
       'pterodactyl_api_key': None,
       'pterodactyl_server_id': None,
       'render_world': 'new',
       'render_dimension': 'overworld',
       'render_default_radius': 300,
-      'render_min_radius': 100,
-      'render_max_radius': 300,
-      'render_max_coordinate': 30000,
       'render_queue_size': 3,
       'web_host': None,
       'web_map': 'flat',
@@ -69,16 +94,14 @@ class Dynmap(commands.Cog):
       'render_queue': []
     }
     self.config = Config.get_conf(self, identifier=8373008182, force_registration=True)
-    self.config.register_guild(**default_guild)
+    self.config.register_global(**default_config)
 
   # Event handler when a user adds a reaction
   @commands.Cog.listener()
-  async def on_reaction_add(self, reaction: Reaction, user: User):
-    guild = user.guild
-
+  async def on_reaction_add(self, reaction: Reaction, user: User) -> None:
     # Is the reaction a "stop button"?
     if reaction.emoji == self.UNICODE_STOP_BUTTON:
-      async with self.config.guild(guild).render_queue() as render_queue:
+      async with self.config.render_queue() as render_queue:
 
         # Is there at least one render in the queue?
         if len(render_queue) > 0:
@@ -96,231 +119,223 @@ class Dynmap(commands.Cog):
                 # If the answer is "yes" to all of the above questions, cancel the render.
                 render_queue[index]['cancelling_user_id'] = user.id
 
-  @commands.group()
-  async def dynmap(self, ctx: commands.Context):
+  @commands.hybrid_group(name='dynmap')
+  async def dynmap(self, ctx: commands.Context) -> None:
+    """Runs Dynmap renders."""
     if ctx.invoked_subcommand is None:
       pass
 
-  @dynmap.group(name='config')
+  @commands.hybrid_group(name='dynmap_config')
   @checks.admin_or_permissions()
-  async def dynmap_config(self, ctx: commands.Context):
-    """Configures settings."""
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config(self, ctx: commands.Context) -> None:
+    """Configures Dynmap settings."""
     if ctx.invoked_subcommand is None:
       pass
 
   @dynmap_config.command(name='get_all')
   @checks.admin_or_permissions()
-  async def dynmap_config_get_all(self, ctx: commands.Context):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_get_all(self, ctx: commands.Context) -> None:
     """Displays all settings."""
-    async with self.config.guild(ctx.guild).all() as settings:
+    async with self.config.all() as settings:
       output = '{:<40} | {:<40}\n'.format('Key', 'Value')
       for key, value in settings.items():
-        if key in ['pterodactyl_api_key', 'pterodactyl_server_id']:
+        if value is None:
+          value = 'None'
+        elif key in ['pterodactyl_api_key', 'pterodactyl_server_id']:
           value = '<redacted>'
-        if isinstance(value, str) or isinstance(value, int):
+
+        if isinstance(value, str) or isinstance(value, int) or value is None:
           output += '{:<40} | {:<40}\n'.format(key, value)
       for page in pagify(output):
         await ctx.send(f'```{page}```')
 
-  @dynmap_config.group(name='pterodactyl')
+  @dynmap_config.command(name='pterodactyl_host')
   @checks.admin_or_permissions()
-  async def dynmap_config_pterodactyl(self, ctx: commands.Context):
-    """Configures Pterodactyl connection settings."""
-    if ctx.invoked_subcommand is None:
-      pass
-
-  @dynmap_config_pterodactyl.command(name='host')
-  @checks.admin_or_permissions()
-  async def dynmap_config_pterodactyl_host(self, ctx: commands.Context, host: str):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_pterodactyl_host(self, ctx: commands.Context, host: str) -> None:
     """Sets the Pterodactyl API host URL."""
-    await self.config.guild(ctx.guild).pterodactyl_api_host.set(host)
+    await self.config.pterodactyl_api_host.set(host)
     await ctx.send(f'Pterodactyl API host URL has been set to `{host}`.')
 
-  @dynmap_config_pterodactyl.command(name='key')
+  @dynmap_config.command(name='pterodactyl_key')
   @checks.admin_or_permissions()
-  async def dynmap_config_pterodactyl_key(self, ctx: commands.Context, key: str):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_pterodactyl_key(self, ctx: commands.Context, key: str) -> None:
     """Sets the Pterodactyl API client key."""
-    await self.config.guild(ctx.guild).pterodactyl_api_key.set(key)
+    await self.config.pterodactyl_api_key.set(key)
     await ctx.send('Pterodactyl API client key has been set.')
 
-  @dynmap_config_pterodactyl.command(name='id')
+  @dynmap_config.command(name='pterodactyl_id')
   @checks.admin_or_permissions()
-  async def dynmap_config_pterodactyl_id(self, ctx: commands.Context, id: str):
-    """Sets the Pterodactyl server ID."""
-    await self.config.guild(ctx.guild).pterodactyl_server_id.set(id)
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_pterodactyl_id(self, ctx: commands.Context, id: str) -> None:
+    """Sets the Pterodactyl API server ID."""
+    await self.config.pterodactyl_server_id.set(id)
     await ctx.send(f'Pterodactyl API server ID has been set.')
 
-  @dynmap_config.group(name='render')
+  @dynmap_config.command(name='render_world')
   @checks.admin_or_permissions()
-  async def dynmap_config_render(self, ctx: commands.Context):
-    """Configures Dynmap render settings."""
-    if ctx.invoked_subcommand is None:
-      pass
-
-  @dynmap_config_render.command(name='world')
-  @checks.admin_or_permissions()
-  async def dynmap_config_render_world(self, ctx: commands.Context, world: str):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_render_world(self, ctx: commands.Context, world: str) -> None:
     """Sets the Minecraft world to render."""
-    await self.config.guild(ctx.guild).render_world.set(world)
+    await self.config.render_world.set(world)
     await ctx.send(f'Render world set to `{world}`.')
 
-  @dynmap_config_render.command(name='dimension')
+  @dynmap_config.command(name='render_dimension')
   @checks.admin_or_permissions()
-  async def dynmap_config_render_dimension(self, ctx: commands.Context, dimension: str):
-    """Sets the Minecraft dimension to render. This is usually the same as the world, except if the dimension is 'overworld'."""
-    await self.config.guild(ctx.guild).render_dimension.set(dimension)
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_render_dimension(self, ctx: commands.Context, dimension: str) -> None:
+    """Sets the Minecraft dimension to render."""
+    await self.config.render_dimension.set(dimension)
     await ctx.send(f'Render dimension set to `{dimension}`.')
 
-  @dynmap_config_render.command(name='default_radius')
+  @dynmap_config.command(name='render_default_radius')
   @checks.admin_or_permissions()
-  async def dynmap_config_render_default_radius(self, ctx: commands.Context, radius: int):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_render_default_radius(self, ctx: commands.Context, radius: int) -> None:
     """Sets the default render radius (when radius is not specified in the render command)."""
-    await self.config.guild(ctx.guild).render_min_radius.set(radius)
+    await self.config.render_default_radius.set(radius)
     await ctx.send(f'Default render radius set to `{radius}`.')
 
-  @dynmap_config_render.command(name='min_radius')
+  @dynmap_config.command(name='render_queue_size')
   @checks.admin_or_permissions()
-  async def dynmap_config_render_min_radius(self, ctx: commands.Context, radius: int):
-    """Sets the minimum render radius."""
-    await self.config.guild(ctx.guild).render_min_radius.set(radius)
-    await ctx.send(f'Minimum render radius set to `{radius}`.')
-
-  @dynmap_config_render.command(name='max_radius')
-  @checks.admin_or_permissions()
-  async def dynmap_config_render_max_radius(self, ctx: commands.Context, radius: int):
-    """Sets the maximum render radius."""
-    await self.config.guild(ctx.guild).render_max_radius.set(radius)
-    await ctx.send(f'Maximum render radius set to `{radius}`.')
-
-  @dynmap_config_render.command(name='max_coordinate')
-  @checks.admin_or_permissions()
-  async def dynmap_config_render_max_coordinate(self, ctx: commands.Context, coordinate: int):
-    """Sets the maximum X and Z coordinate that can be specified for the center of the radius render."""
-    await self.config.guild(ctx.guild).render_max_coordinate.set(coordinate)
-    await ctx.send(f'Maximum X and Z coordinate set to `{coordinate}`.')
-
-  @dynmap_config_render.command(name='queue_size')
-  @checks.admin_or_permissions()
-  async def dynmap_config_render_queue_size(self, ctx: commands.Context, size: int):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_render_queue_size(self, ctx: commands.Context, size: int) -> None:
     """Sets the maximum number of renders that can be queued, including the currently running render."""
-    await self.config.guild(ctx.guild).render_queue_size.set(size)
+    await self.config.render_queue_size.set(size)
     await ctx.send(f'Render queue size set to `{size}`.')
 
-  @dynmap_config.group(name='web')
+  @dynmap_config.command(name='web_host')
   @checks.admin_or_permissions()
-  async def dynmap_config_web(self, ctx: commands.Context):
-    """Configures Dynmap web settings."""
-    if ctx.invoked_subcommand is None:
-      pass
-
-  @dynmap_config_web.command(name='host')
-  @checks.admin_or_permissions()
-  async def dynmap_config_web_host(self, ctx: commands.Context, host: str):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_web_host(self, ctx: commands.Context, host: str) -> None:
     """Sets the Dynmap host URL used in the embed link."""
-    await self.config.guild(ctx.guild).web_host.set(host)
+    await self.config.web_host.set(host)
     await ctx.send(f'Dynmap host URL set to `{host}`.')
 
-  @dynmap_config_web.command(name='map')
+  @dynmap_config.command(name='web_map')
   @checks.admin_or_permissions()
-  async def dynmap_config_web_map(self, ctx: commands.Context, map: str):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_web_map(self, ctx: commands.Context, map: str) -> None:
     """Sets the Dynmap map name used in the embed link."""
-    await self.config.guild(ctx.guild).web_map.set(map)
+    await self.config.web_map.set(map)
     await ctx.send(f'Dynmap map name set to `{map}`.')
 
-  @dynmap_config_web.command(name='zoom')
+  @dynmap_config.command(name='web_zoom')
   @checks.admin_or_permissions()
-  async def dynmap_config_web_zoom(self, ctx: commands.Context, zoom: int):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_web_zoom(self, ctx: commands.Context, zoom: int) -> None:
     """Sets the Dynmap zoom level used in the embed link."""
-    await self.config.guild(ctx.guild).web_zoom.set(zoom)
+    await self.config.web_zoom.set(zoom)
     await ctx.send(f'Dynmap zoom level set to `{zoom}`.')
 
-  @dynmap_config_web.command(name='y')
+  @dynmap_config.command(name='web_y')
   @checks.admin_or_permissions()
-  async def dynmap_config_web_y(self, ctx: commands.Context, y: int):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_web_y(self, ctx: commands.Context, y: int) -> None:
     """Sets the Dynmap Y coordinate used in the embed link."""
-    await self.config.guild(ctx.guild).web_y.set(y)
+    await self.config.web_y.set(y)
     await ctx.send(f'Dynmap Y coordinate set to `{y}`.')
 
-  @dynmap_config.group(name='delay')
+  @dynmap_config.command(name='queued_render_start_delay')
   @checks.admin_or_permissions()
-  async def dynmap_config_delay(self, ctx: commands.Context):
-    """Configures delay settings."""
-    if ctx.invoked_subcommand is None:
-      pass
-
-  @dynmap_config_delay.command(name='queued_render_start')
-  @checks.admin_or_permissions()
-  async def dynmap_config_delay_queued_render_start(self, ctx: commands.Context, delay: int):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_delay_queued_render_start(self, ctx: commands.Context, delay: int) -> None:
     """Sets the number of seconds for a queued render to wait after the current render has finished."""
-    await self.config.guild(ctx.guild).queue_render_delay_in_seconds.set(delay)
+    await self.config.queue_render_delay_in_seconds.set(delay)
     await ctx.send(f'Queued render delay set to `{delay}` seconds.')
 
-  @dynmap_config.group(name='interval')
+  @dynmap_config.command(name='elapsed_interval')
   @checks.admin_or_permissions()
-  async def dynmap_config_interval(self, ctx: commands.Context):
-    """Configures interval settings."""
-    if ctx.invoked_subcommand is None:
-      pass
-
-  @dynmap_config_interval.command(name='elapsed')
-  @checks.admin_or_permissions()
-  async def dynmap_config_interval_elapsed(self, ctx: commands.Context, interval: int):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_interval_elapsed(self, ctx: commands.Context, interval: int) -> None:
     """While a render is in progress, update the elapsed time every X seconds."""
-    await self.config.guild(ctx.guild).elapsed_time_interval_in_seconds.set(interval)
+    await self.config.elapsed_time_interval_in_seconds.set(interval)
     await ctx.send(f'Elapsed time interval set to `{interval}` seconds.')
 
-  @dynmap_config_interval.command(name='cancel')
+  @dynmap_config.command(name='cancel_interval')
   @checks.admin_or_permissions()
-  async def dynmap_config_interval_cancel(self, ctx: commands.Context, interval: int):
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_interval_cancel(self, ctx: commands.Context, interval: int) -> None:
     """While a render is in progress, check if a cancellation has been requested every X seconds."""
-    await self.config.guild(ctx.guild).cancellation_check_interval_in_seconds.set(interval)
+    await self.config.cancellation_check_interval_in_seconds.set(interval)
     await ctx.send(f'Cancellation check time interval set to `{interval}` seconds.')
 
-  @dynmap_config.group(name='timeout')
+  @dynmap_config.command(name='auth_timeout')
   @checks.admin_or_permissions()
-  async def dynmap_config_timeout(self, ctx: commands.Context):
-    """Configures timeout settings."""
-    if ctx.invoked_subcommand is None:
-      pass
-
-  @dynmap_config_timeout.command(name='auth')
-  @checks.admin_or_permissions()
-  async def dynmap_config_timeout_auth(self, ctx: commands.Context, timeout: int):
-    """Sets the maximum number of seconds to wait for a successful response after sending a websocket authentication request.'."""
-    await self.config.guild(ctx.guild).auth_timeout_in_seconds.set(timeout)
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_timeout_auth(self, ctx: commands.Context, timeout: int) -> None:
+    """Sets number of seconds to wait for a successful response after sending a websocket auth request."""
+    await self.config.auth_timeout_in_seconds.set(timeout)
     await ctx.send(f'Auth timeout set to `{timeout}` seconds.')
 
-  @dynmap_config_timeout.command(name='command')
+  @dynmap_config.command(name='command_timeout')
   @checks.admin_or_permissions()
-  async def dynmap_config_timeout_command(self, ctx: commands.Context, timeout: int):
-    """Sets the maximum number of seconds to wait for a console response after starting or cancelling a Dynmap render."""
-    await self.config.guild(ctx.guild).command_timeout_in_seconds.set(timeout)
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_timeout_command(self, ctx: commands.Context, timeout: int) -> None:
+    """Sets number of seconds to wait for a console response after starting or cancelling a Dynmap render."""
+    await self.config.command_timeout_in_seconds.set(timeout)
     await ctx.send(f'Command timeout set to `{timeout}` seconds.')
 
-  @dynmap_config_timeout.command(name='render')
+  @dynmap_config.command(name='render_timeout')
   @checks.admin_or_permissions()
-  async def dynmap_config_timeout_render(self, ctx: commands.Context, timeout: int):
-    """Sets the maximum number of seconds to wait for a console message indicating that a Dynmap render has finished."""
-    await self.config.guild(ctx.guild).render_timeout_in_seconds.set(timeout)
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_config_timeout_render(self, ctx: commands.Context, timeout: int) -> None:
+    """Sets number of seconds to wait for a console message indicating that a Dynmap render has finished."""
+    await self.config.render_timeout_in_seconds.set(timeout)
     await ctx.send(f'Render timeout set to `{timeout}` seconds.')
 
-  @dynmap.command(name='clear_queue')
+  @dynmap_config.command(name='clear_queue')
   @checks.admin_or_permissions()
-  async def dynmap_clear_queue(self, ctx: commands.Context):
-    """Clears the internal queue of Dynmap renders. Caution: Will likely cause any currently running or queued renders to fail."""
-    await self.config.guild(ctx.guild).render_queue.clear()
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def dynmap_clear_queue(self, ctx: commands.Context) -> None:
+    """Clears the queue of current Dynmap renders. Caution: all current renders will likely fail."""
+    await self.config.render_queue.clear()
     await ctx.send('Render queue cleared.')
 
   @dynmap.command(name='render')
-  async def dynmap_render(self, ctx: commands.Context, param1: str, param2: int = None, param3: int = None):
+  @app_commands.guild_only()
+  @app_commands.describe(x = 'X coordinate', z = 'Z coordinate', radius = 'Radius (optional)')
+  @app_commands.autocomplete(radius = radius_autocomplete)
+  async def dynmap_render(self, ctx: commands.Context, x: AppCommandHelpers.get_dimension_range(), z: AppCommandHelpers.get_dimension_range(), radius: AppCommandHelpers.get_radius_range() = None) -> None:
     """Starts a Dynmap radius render centered on the specified coordinates."""
-    world = await self.config.guild(ctx.guild).render_world()
-    dimension = await self.config.guild(ctx.guild).render_dimension()
-    default_radius = await self.config.guild(ctx.guild).render_default_radius()
-    min_radius = await self.config.guild(ctx.guild).render_min_radius()
-    max_radius = await self.config.guild(ctx.guild).render_max_radius()
-    max_coordinate = await self.config.guild(ctx.guild).render_max_coordinate()
-    queue_size = await self.config.guild(ctx.guild).render_queue_size()
+    await self.run_dynmap_render(ctx, x, z, radius)
+
+  @dynmap.command(name='player')
+  @app_commands.guild_only()
+  @app_commands.describe(player = 'Minecraft username of the player', radius = 'Radius (optional)')
+  @app_commands.autocomplete(radius = radius_autocomplete)
+  async def dynmap_player(self, ctx: commands.Context, player: str, radius: AppCommandHelpers.get_radius_range() = None) -> None:
+    """Starts a Dynmap radius render centred on the specified player."""
+    await self.run_dynmap_render(ctx, player, radius)
+
+  async def run_dynmap_render(self, ctx: commands.Context, param1: str | int, param2: int = None, param3: int = None):
+    world = await self.config.render_world()
+    dimension = await self.config.render_dimension()
+    default_radius = await self.config.render_default_radius()
+    queue_size = await self.config.render_queue_size()
 
     this_render = None
 
@@ -340,7 +355,7 @@ class Dynmap(commands.Cog):
 
           # If the 1st parameter is an integer, treat it as the X coordinate.
           # The 2nd parameter / Z coordinate must also be specified.
-          if self.isinteger(param1):
+          if isinstance(param1, int):
             if param2 is None:
               raise RenderFailedError('The Z coordinate must be specified.')
 
@@ -382,17 +397,17 @@ class Dynmap(commands.Cog):
           embed_url = await self.get_embed_url(ctx, x, z, world)
           self.init_embed(ctx, embed, embed_url, x, z, radius)
 
-          if x > max_coordinate or x < -max_coordinate or z > max_coordinate or z < -max_coordinate:
-            raise RenderFailedError(f'X and Z coordinates must be between `-{max_coordinate}` and `{max_coordinate}`.')
-          if radius < min_radius or radius > max_radius:
-            raise RenderFailedError(f'Radius must be between `{min_radius}` and `{max_radius}`.')
+          if x > MAX_COORDINATE or x < -MAX_COORDINATE or z > MAX_COORDINATE or z < -MAX_COORDINATE:
+            raise RenderFailedError(f'X and Z coordinates must be between `-{MAX_COORDINATE}` and `{MAX_COORDINATE}`.')
+          if radius < MIN_RADIUS or radius > MAX_RADIUS:
+            raise RenderFailedError(f'Radius must be between `{MIN_RADIUS}` and `{MAX_RADIUS}`.')
 
           this_render = {
             'user_id': ctx.author.id,
             'message_id': message.id,
             'cancelling_user_id': None
           }
-          async with self.config.guild(ctx.guild).render_queue() as render_queue:
+          async with self.config.render_queue() as render_queue:
             if len(render_queue) >= queue_size:
               raise RenderFailedError('Render queue is full. Please wait for a render to complete and try again.')
             render_queue.append(this_render)
@@ -454,7 +469,7 @@ class Dynmap(commands.Cog):
     # Make sure to clear out the render from the queue if it stops for any reason
     finally:
       if this_render:
-        async with self.config.guild(ctx.guild).render_queue() as render_queue:
+        async with self.config.render_queue() as render_queue:
           index, render = self.find_index_and_render_with_matching_message_id(render_queue, this_render['message_id'])
           if index is not None:
             render_queue.pop(index)
@@ -463,22 +478,32 @@ class Dynmap(commands.Cog):
     ctx: commands.Context,
     x: int,
     z: int,
-    world: str):
+    world: str) -> str:
 
-    web_host = await self.config.guild(ctx.guild).web_host()
-    web_map = await self.config.guild(ctx.guild).web_map()
-    web_zoom = await self.config.guild(ctx.guild).web_zoom()
-    web_y = await self.config.guild(ctx.guild).web_y()
+    web_host = await self.config.web_host()
+    web_map = await self.config.web_map()
+    web_zoom = await self.config.web_zoom()
+    web_y = await self.config.web_y()
+
+    if web_host is None:
+      raise RenderFailedError('Web host must be set in the config.')
 
     return f'{web_host}/?worldname={world}&mapname={web_map}&zoom={web_zoom}&x={x}&y={web_y}&z={z}'
 
   async def get_websocket_credentials(self,
     ctx: commands.Context,
-    session: ClientSession):
+    session: ClientSession) -> Tuple[str, str]:
 
-    pterodactyl_host = await self.config.guild(ctx.guild).pterodactyl_api_host()
-    pterodactyl_key = await self.config.guild(ctx.guild).pterodactyl_api_key()
-    pterodactyl_id = await self.config.guild(ctx.guild).pterodactyl_server_id()
+    pterodactyl_host = await self.config.pterodactyl_api_host()
+    pterodactyl_key = await self.config.pterodactyl_api_key()
+    pterodactyl_id = await self.config.pterodactyl_server_id()
+
+    if pterodactyl_host is None:
+      raise RenderFailedError('Pterodactyl API host URL must be set in the config.')
+    elif pterodactyl_key is None:
+      raise RenderFailedError('Pterodactyl API client key must be set in the config.')
+    elif pterodactyl_id is None:
+      raise RenderFailedError('Pterodactyl API server ID must be set in the config.')
 
     websocket_url = reduce(urljoin, [pterodactyl_host, 'api/client/servers/', pterodactyl_id + '/', 'websocket'])
     headers = {
@@ -501,9 +526,9 @@ class Dynmap(commands.Cog):
   async def authenticate_websocket(self,
     ctx: commands.Context,
     ws: ClientWebSocketResponse,
-    ws_token: str):
+    ws_token: str) -> None:
 
-    auth_timeout_in_seconds = await self.config.guild(ctx.guild).auth_timeout_in_seconds()
+    auth_timeout_in_seconds = await self.config.auth_timeout_in_seconds()
 
     request_json = {
       'event': 'auth',
@@ -529,9 +554,9 @@ class Dynmap(commands.Cog):
     message: Message,
     embed: Embed,
     this_render: dict,
-    player_name: str):
+    player_name: str) -> str:
 
-    command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
+    command_timeout_in_seconds = await self.config.command_timeout_in_seconds()
 
     dimension_command = f'data get entity {player_name} Dimension'
     dimension_request_json = self.create_command_request_json(dimension_command)
@@ -574,9 +599,9 @@ class Dynmap(commands.Cog):
     message: Message,
     embed: Embed,
     this_render: dict,
-    player_name: str):
+    player_name: str) -> Tuple[int, int]:
 
-    command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
+    command_timeout_in_seconds = await self.config.command_timeout_in_seconds()
 
     position_command = f'data get entity {player_name} Pos'
     position_request_json = self.create_command_request_json(position_command)
@@ -623,12 +648,12 @@ class Dynmap(commands.Cog):
     this_render: dict,
     x: int,
     z: int,
-    radius: int):
+    radius: int) -> None:
 
-    world = await self.config.guild(ctx.guild).render_world()
-    queued_render_start_delay_in_seconds = await self.config.guild(ctx.guild).queued_render_start_delay_in_seconds()
-    command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
-    render_timeout_in_seconds = await self.config.guild(ctx.guild).render_timeout_in_seconds()
+    world = await self.config.render_world()
+    queued_render_start_delay_in_seconds = await self.config.queued_render_start_delay_in_seconds()
+    command_timeout_in_seconds = await self.config.command_timeout_in_seconds()
+    render_timeout_in_seconds = await self.config.render_timeout_in_seconds()
 
     command = f'dynmap radiusrender {world} {x} {z} {radius}'
     request_json = self.create_command_request_json(command)
@@ -637,7 +662,7 @@ class Dynmap(commands.Cog):
       start_render_result = ConsoleResponseResult.FAILURE
 
       # Attempt to start the render only if it is the next queued render to run
-      async with self.config.guild(ctx.guild).render_queue() as render_queue:
+      async with self.config.render_queue() as render_queue:
         if len(render_queue) > 0 and render_queue[0]['message_id'] == this_render['message_id']:
           await ws.send_json(request_json)
 
@@ -713,11 +738,11 @@ class Dynmap(commands.Cog):
     ws: ClientWebSocketResponse,
     message: Message,
     embed: Embed,
-    this_render: dict):
+    this_render: dict) -> int:
 
-    world = await self.config.guild(ctx.guild).render_world()
+    world = await self.config.render_world()
 
-    render_timeout_in_seconds = await self.config.guild(ctx.guild).render_timeout_in_seconds()
+    render_timeout_in_seconds = await self.config.render_timeout_in_seconds()
 
     success_response = self.CONSOLE_MESSAGE_RENDER_FINISHED.format(world = world)
 
@@ -751,13 +776,13 @@ class Dynmap(commands.Cog):
     embed: Embed,
     this_render: dict,
     cancelling_user: User,
-    run_command_when_cancelled: bool):
+    run_command_when_cancelled: bool) -> None:
 
     cancel_render_result = ConsoleResponseResult.SUCCESS
 
     if run_command_when_cancelled:
-      world = await self.config.guild(ctx.guild).render_world()
-      command_timeout_in_seconds = await self.config.guild(ctx.guild).command_timeout_in_seconds()
+      world = await self.config.render_world()
+      command_timeout_in_seconds = await self.config.command_timeout_in_seconds()
 
       command = f'dynmap cancelrender {world}'
       request_json = self.create_command_request_json(command)
@@ -795,10 +820,10 @@ class Dynmap(commands.Cog):
     show_elapsed_time: bool = False,         # Set to True to show the elapsed time in the description while waiting for a response
     cancellable: bool = False,               # Set to True if the render can be cancelled
     run_command_when_cancelled: bool = False # Set to True if the "/dynmap cancelrender" command should be run when the render is cancelled
-    ):
+    ) -> Tuple[ConsoleResponseResult, str]:
 
-    elapsed_time_interval_in_seconds = await self.config.guild(ctx.guild).elapsed_time_interval_in_seconds()
-    cancellation_check_interval_in_seconds = await self.config.guild(ctx.guild).cancellation_check_interval_in_seconds()
+    elapsed_time_interval_in_seconds = await self.config.elapsed_time_interval_in_seconds()
+    cancellation_check_interval_in_seconds = await self.config.cancellation_check_interval_in_seconds()
 
     start_time_in_seconds = timer()
     current_time_in_seconds = start_time_in_seconds
@@ -836,7 +861,7 @@ class Dynmap(commands.Cog):
       # If this render can be cancelled, check for render cancellations every second
       if cancellable:
         if current_time_in_seconds - last_cancellation_check_in_seconds >= cancellation_check_interval_in_seconds:
-          async with self.config.guild(ctx.guild).render_queue() as render_queue:
+          async with self.config.render_queue() as render_queue:
             index, render = self.find_index_and_render_with_matching_message_id(render_queue, this_render['message_id'])
             if render:
               cancelling_user_id = render['cancelling_user_id']
@@ -869,7 +894,7 @@ class Dynmap(commands.Cog):
     ctx: commands.Context,
     session: ClientSession,
     ws: ClientWebSocketResponse,
-    event_json: str):
+    event_json: str) -> str | None:
 
     event = event_json['event']
 
@@ -899,7 +924,7 @@ class Dynmap(commands.Cog):
     color: Color = None,
     description: str = None,
     footer: str = None,
-    reaction: str = None):
+    reaction: str = None) -> None:
 
     embed.title = title
     embed.color = color
@@ -914,7 +939,7 @@ class Dynmap(commands.Cog):
       await message.add_reaction(reaction)
 
   @staticmethod
-  def create_embed(ctx):
+  def create_embed(ctx) -> Embed:
     embed = Embed(
       color = Color.light_grey(),
       title = 'Dynmap Render Initializing',
@@ -925,7 +950,7 @@ class Dynmap(commands.Cog):
     return embed
 
   @staticmethod
-  def init_embed(ctx, embed: Embed, url: str, x: int, z: int, radius: int):
+  def init_embed(ctx, embed: Embed, url: str, x: int, z: int, radius: int) -> Embed:
     embed.url = url
 
     embed.add_field(name = 'X', value = x, inline = True)
@@ -935,26 +960,22 @@ class Dynmap(commands.Cog):
     return embed
 
   @staticmethod
-  def create_command_request_json(command: str):
+  def create_command_request_json(command: str) -> object:
     return {
       'event': 'send command',
       'args': [command]
     }
 
   @staticmethod
-  def format_time(time_in_seconds: int):
+  def format_time(time_in_seconds: int) -> str:
     format_minutes = int(time_in_seconds / 60)
     format_seconds = int(time_in_seconds % 60)
     return f'{format_minutes}m {format_seconds}s'
 
   @staticmethod
-  def find_index_and_render_with_matching_message_id(render_queue, message_id):
+  def find_index_and_render_with_matching_message_id(render_queue, message_id) -> Tuple[int, object]:
     return next(((i, v) for (i, v) in enumerate(render_queue) if v['message_id'] == message_id), (None, None))
 
   @staticmethod
-  def isinteger(s):
-    return s[1:].isnumeric() if s[0] == '-' else s.isnumeric()
-
-  @staticmethod
-  def strip_ansi_control_sequences(s):
+  def strip_ansi_control_sequences(s: str) -> str:
     return re.sub(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]', '', s)
