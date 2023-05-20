@@ -35,38 +35,60 @@ You will also need the **Pterodactyl Host URL** (The URL when you log into the P
 
 In the Dynmap cog, set up your Pterodactyl credentials with the following commands:
 
-`[p]dynmap config pterodactyl key <PUT API KEY HERE>`
+`[p]dynmap_config pterodactyl_key <PUT API KEY HERE>`
 
-`[p]dynmap config pterodactyl host <PUT HOST URL HERE>`
+`[p]dynmap_config pterodactyl_host <PUT HOST URL HERE>`
 
-`[p]dynmap config pterodactyl id <PUT SERVER UUID HERE>`
+`[p]dynmap_config pterodactyl_id <PUT SERVER UUID HERE>`
 
 You will also need to provide the **Dynmap Host URL** (i.e. `https://dynmap.server.com` or `https://server.com:8123`) so that users can click the embed link directly to their render location on Dynmap:
 
-`[p]dynmap config web host <PUT DYNMAP URL HERE>`
+`[p]dynmap_config web_host <PUT DYNMAP URL HERE>`
 
 ## Configuration
 
-You may also configure the following settings to your preference, by running `[p]dynmap config`:
+### Settings
 
-| Submenu    | Setting               | Description                                                                                                            | Default Value |
-|------------|-----------------------|------------------------------------------------------------------------------------------------------------------------|---------------|
-| `render`   | `world`               | Sets the Minecraft world to render.                                                                                    | `new`         |
-| `render`   | `dimension`           | Sets the Minecraft dimension to render. This is usually the same as the world, except if the dimension is 'overworld'. | `overworld`   |
-| `render`   | `default_radius`      | Sets the default render radius (when radius is not specified in the render command).                                   | `300`         |
-| `render`   | `min_radius`          | Sets the minimum render radius.                                                                                        | `100`         |
-| `render`   | `max_radius`          | Sets the maximum render radius.                                                                                        | `300`         |
-| `render`   | `max_dimension`       | Sets the maximum X and Z coordinate that can be specified for the center of the radius render.                         | `30000`       |
-| `render`   | `queue_size`          | Sets the maximum number of renders that can be queued, including the currently running render.                         | `3`           |
-| `web`      | `map`                 | Sets the Dynmap map name used in the embed link.                                                                       | `flat`        |
-| `web`      | `zoom`                | Sets the Dynmap zoom level used in the embed link.                                                                     | `6`           |
-| `web`      | `y`                   | Sets the Dynmap map name used in the embed link.                                                                       | `64`          |
-| `delay`    | `queued_render_start` | Sets the number of seconds for a queued render to wait after the current render has finished.                          | `3`           |
-| `interval` | `elapsed`             | While a render is in progress, update the elapsed time every X seconds.                                                | `5`           |
-| `interval` | `cancel`              | While a render is in progress, check if a cancellation has been requested every X seconds.                             | `1`           |
-| `timeout`  | `auth`                | Sets the maximum number of seconds to wait for a successful response after sending a websocket authentication request. | `10`          |
-| `timeout`  | `command`             | Sets the maximum number of seconds to wait for a console response after starting or cancelling a Dynmap render.        | `10`          |
-| `timeout`  | `render`              | Sets the maximum number of seconds to wait for a console message indicating that a Dynmap render has finished.         | `600`         |
+You may also configure the following settings to your preference, by running `[p]dynmap_config`:
+
+| Setting               | Description                                                                                                            | Default Value |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------|---------------|
+| `render_world`               | Sets the Minecraft world to render.                                                                                    | `new`         |
+| `render_dimension`           | Sets the Minecraft dimension to render. This is usually the same as the world, except if the dimension is 'overworld'. | `overworld`   |
+| `render_default_radius`      | Sets the default render radius (when radius is not specified in the render command).                                   | `300`         |
+| `render_queue_size`          | Sets the maximum number of renders that can be queued, including the currently running render.                         | `3`           |
+| `web_map`                 | Sets the Dynmap map name used in the embed link.                                                                       | `flat`        |
+| `web_zoom`                | Sets the Dynmap zoom level used in the embed link.                                                                     | `6`           |
+| `web_y`                   | Sets the Dynmap map name used in the embed link.                                                                       | `64`          |
+| `queued_render_start_delay` | Sets the number of seconds for a queued render to wait after the current render has finished.                          | `3`           |
+| `elapsed_interval`             | While a render is in progress, update the elapsed time every X seconds.                                                | `5`           |
+| `cancel_interval`              | While a render is in progress, check if a cancellation has been requested every X seconds.                             | `1`           |
+| `auth_timeout`                | Sets the maximum number of seconds to wait for a successful response after sending a websocket authentication request. | `10`          |
+| `command_timeout`             | Sets the maximum number of seconds to wait for a console response after starting or cancelling a Dynmap render.        | `10`          |
+| `render_timeout`              | Sets the maximum number of seconds to wait for a console message indicating that a Dynmap render has finished.         | `600`         |
+
+### Slash Commands
+
+Enable the slash commands `/dynmap render` and `/dynmap player`:
+
+1. Run `[p]slash enable dynmap`
+2. Run `[p]slash sync`
+3. Go to **Server Settings** => **Integrations** => **\<your bot name\>** and configure permissions.
+
+The commands under `/dynmap_config` can also be enabled as slash commands, but can be left disabled since they are only used by administrators.
+
+### Constants
+
+Due to a limitation in Discord.py, some settings are stored as constants directly in the `dynmap.py` file so that they can be used as parameter limits in the slash commands.
+
+After updating these constants, you will need to restart the bot and run `[p]slash sync` again.
+
+| Constant               | Description                                                                                                            | Default Value |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------|---------------|
+| `MIN_RADIUS`          | Sets the minimum render radius.                                                                                        | `100`         |
+| `MAX_RADIUS`          | Sets the maximum render radius.                                                                                        | `300`         |
+| `MAX_DIMENSION`       | Sets the maximum X and Z coordinate that can be specified for the center of the radius render.                         | `30000`       |
+
 
 ## Usage
 
@@ -82,11 +104,11 @@ Start a dynmap radius render with the specified X and Z coordinates, and specifi
 
 Start a dynmap radius render centred on a player currently on the Minecraft server, using the default radius:
 
-`[p]dynmap render <player_name>`
+`[p]dynmap player <player_name>`
 
 Start a dynmap radius render centred on a player currently on the Minecraft server, using a specified radius:
 
-`[p]dynmap render <player_name> <radius>`
+`[p]dynmap player <player_name> <radius>`
 
 ### Queueing renders
 
@@ -106,27 +128,47 @@ On the MRT Server, this cog is used to control access to our Mumble, OpenTTD, an
 
 ## Setup
 
-Set your passwords with:
+### Services and Passwords
 
-`[p]password set <name> <value>`
+Add a new service:
 
-where `<name>` is the name of the service and `<value>` is the text you want to DM to the user when they request it. This text should contain the password and a description of what the password is.
+`[p]password_config add_service <service_name> <description>`
 
-Passwords can be cleared with:
+where `<service_name>` is the name of the service and `<description>` is the text that describes what the password is. This description appears before the actual password in the DM sent to the user.
 
-`[p]password clear <name>`
+Remove an existing service:
 
-### Example Password
+`[p]password_config remove_service <service_name>`
 
-`` [p]password set openttd **OpenTTD Password:** `ThisIsAPassword` ``
+**Note: If you are using slash commands, whenever you add or remove services, you will also need to update the `SERVICE_CHOICES` constant in `password.py`.** This constant defines the available choices in the `/password get` slash command. After updating the constant, you will need to restart the bot and run `[p]slash sync` again.
+
+Set the password for a service:
+
+`[p]password_config set_password <service_name> <password>`
+
+Example:
+```
+[p]password_config add_service openttd OpenTTD Password
+[p]password_config set_password openttd ThisIsAPassword
+```
+
+### Slash Commands
+
+Enable the slash commands `/password get` and `/password list`:
+
+1. Run `[p]slash enable password`
+2. Run `[p]slash sync`
+3. Go to **Server Settings** => **Integrations** => **\<your bot name\>** and configure permissions.
+
+The commands under `/password_config` can also be enabled as slash commands, but can be left disabled since they are only used by administrators.
 
 ## Usage
 
-Users get passwords with:
+Users can get passwords with:
 
-`[p]password get <name>`
+`[p]password get <service_name>`
 
-The text containing the password is DMed to the user. If the user does not have DMs allowed, an error message will indicate this.
+The service description and password is DMed to the user. If the user does not have DMs allowed, an error message will indicate this.
 
 # License
 
