@@ -11,11 +11,11 @@ class Password(commands.Cog):
   """Allows users to obtain access passwords for external services."""
 
   def __init__(self):
-    default_guild = {
+    default_config = {
       'services': {}
     }
     self.config = Config.get_conf(self, identifier=8373008182, force_registration=True)
-    self.config.register_guild(**default_guild)
+    self.config.register_global(**default_config)
 
   @commands.hybrid_group(name="password")
   async def password(self, ctx: commands.Context) -> None:
@@ -38,14 +38,14 @@ class Password(commands.Cog):
   @app_commands.checks.has_permissions(administrator=True)
   async def password_add_service(self, ctx, service_name: str, *, service_description: str) -> None:
     """Adds a new service."""
-    async with self.config.guild(ctx.guild).services() as services:
+    async with self.config.services() as services:
       if service_name not in services:
         services[service_name] = {
           'description': service_description,
           'password': ""
         }
         await ctx.send(f'Service `{service_name}` added. Set the password with `{ctx.prefix}password_config set_password {service_name}`.')
-        await ctx.send('You will also need to add this service directly to password.py in order to update slash commands choices.')
+        await ctx.send('You will also need to add this service directly to password.py in order to update slash commands.')
       else:
         await ctx.send(f'Service `{service_name}` already exists.')
 
@@ -55,11 +55,11 @@ class Password(commands.Cog):
   @app_commands.checks.has_permissions(administrator=True)
   async def password_remove_service(self, ctx, service_name: str) -> None:
     """Removes an existing service."""
-    async with self.config.guild(ctx.guild).services() as services:
+    async with self.config.services() as services:
       if service_name in services:
         del services[service_name]
         await ctx.send(f'Service `{service_name}` removed.')
-        await ctx.send('You will also need to remove this service directly from password.py in order to update slash commands choices.')
+        await ctx.send('You will also need to remove this service directly from password.py in order to update slash commands.')
       else:
         await ctx.send(f'Service `{service_name}` does not exist.')
 
@@ -69,7 +69,7 @@ class Password(commands.Cog):
   @app_commands.checks.has_permissions(administrator=True)
   async def password_set_password(self, ctx, service_name: str, password: str) -> None:
     """Set the password for the given service."""
-    async with self.config.guild(ctx.guild).services() as services:
+    async with self.config.services() as services:
       if service_name in services:
         services[service_name] = {
           'description': services[service_name]['description'],
@@ -84,7 +84,7 @@ class Password(commands.Cog):
   @app_commands.describe(service_name = 'Name of the service')
   async def password_get(self, ctx, service_name: SERVICE_CHOICES) -> None:
     """Sends the password of a given service to the user via direct message."""
-    async with self.config.guild(ctx.guild).services() as services:
+    async with self.config.services() as services:
       if service_name in services:
         await ctx.send(f'{ctx.author.mention} has requested the password for `{service_name}`.')
         try:
@@ -102,7 +102,7 @@ class Password(commands.Cog):
   @app_commands.guild_only()
   async def password_list(self, ctx) -> None:
     """Lists all services."""
-    async with self.config.guild(ctx.guild).services() as services:
+    async with self.config.services() as services:
       service_names = [*services]
       output = '\n'.join(map(lambda name: f'- `{name}`', service_names))
       await ctx.send(f'All services:\n{output}')
