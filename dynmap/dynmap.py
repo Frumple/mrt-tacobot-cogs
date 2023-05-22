@@ -93,7 +93,7 @@ class Dynmap(commands.Cog):
       'render_timeout_in_seconds': 600,
       'render_queue': []
     }
-    self.config = Config.get_conf(self, identifier=8373008182, force_registration=True)
+    self.config = Config.get_conf(self, identifier=707402381242597, force_registration=True)
     self.config.register_global(**default_config)
 
   # Event handler when a user adds a reaction

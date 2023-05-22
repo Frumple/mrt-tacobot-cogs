@@ -14,7 +14,7 @@ class Password(commands.Cog):
     default_config = {
       'services': {}
     }
-    self.config = Config.get_conf(self, identifier=8373008182, force_registration=True)
+    self.config = Config.get_conf(self, identifier=908331620815439, force_registration=True)
     self.config.register_global(**default_config)
 
   @commands.hybrid_group(name="password")
