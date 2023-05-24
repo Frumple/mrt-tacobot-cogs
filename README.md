@@ -18,16 +18,16 @@ After agreeing to add a 3rd-party repository, install one of the cogs below with
 
 # Cogs
 
-| Name                  | Description                                                                            |
-|-----------------------|----------------------------------------------------------------------------------------|
-| [Dynmap](#dynmap)     | Allows users to run Dynmap radius renders on a Minecraft server hosted on Pterodactyl. |
-| [Password](#password) | Allows users to obtain access passwords for external services.                         |
+| Name                  | Description                                                             |
+|-----------------------|-------------------------------------------------------------------------|
+| [Dynmap](#dynmap)     | Runs Dynmap radius renders on a Minecraft server hosted on Pterodactyl. |
+| [Password](#password) | Buttons that provide access passwords to external services.             |
 
 # Dynmap
 
 ## Setup
 
-Allows users to run [Dynmap](https://github.com/webbukkit/dynmap) radius renders on a Minecraft server hosted on [Pterodactyl](https://pterodactyl.io/).
+This cog allows users to run [Dynmap](https://github.com/webbukkit/dynmap) radius renders on a Minecraft server hosted on [Pterodactyl](https://pterodactyl.io/).
 
 In Pterodactyl, you will need a user with **console permissions** to the Minecraft server you want renders on. In this user's settings, go to **API Credentials** and create a new **API Key** (leave allowed IPs blank). Copy down this key.
 
@@ -122,53 +122,67 @@ A render that is running or queued can be cancelled by reacting to the bot's mes
 
 # Password
 
-Allows users to obtain access passwords for external services.
+This cog creates buttons that users can click on to obtain access passwords for external services.
 
 On the MRT Server, this cog is used to control access to our Mumble, OpenTTD, and file server, as well as the creation of new accounts on our wiki.
 
 ## Setup
 
+Create a new, empty, read-only Discord channel where your "password buttons" will reside.
+
+Register this channel in the cog:
+
+`[p]password_config set_message_channel <channel_id>`
+
+Set the text of the message that will contain the buttons (can include Markdown formatting):
+
+`[p]password_config set_message_text <message_text>`
+
+Optionally, you may specify a separate channel where a log message will be sent each time a user clicks one of the buttons:
+
+`[p]password_config set_log_channel <channel_id>`
+
+To stop sending log messages, run:
+
+`[p]password_config set_log_channel`
+
 ### Services and Passwords
 
 Add a new service:
 
-`[p]password_config add_service <service_name> <description>`
-
-where `<service_name>` is the name of the service and `<description>` is the text that describes what the password is. This description appears before the actual password in the DM sent to the user.
+`[p]password_config add_service <service_name>`
 
 Remove an existing service:
 
 `[p]password_config remove_service <service_name>`
 
-**Note: If you are using slash commands, whenever you add or remove services, you will also need to update the `SERVICE_CHOICES` constant in `password.py`.** This constant defines the available choices in the `/password get` slash command. After updating the constant, you will need to restart the bot and run `[p]slash sync` again.
+Set the button text for a service:
+
+`[p]password_config set_button_text <service_name> <button_text>`
+
+Set the description for a service (can include Markdown formatting):
+
+`[p]password_config set_description <service_name> <description>`
 
 Set the password for a service:
 
 `[p]password_config set_password <service_name> <password>`
 
-Example:
+### Example
 ```
-[p]password_config add_service openttd OpenTTD Password
-[p]password_config set_password openttd ThisIsAPassword
+[p]password_config set_message_channel 999999999
+[p]password_config set_message_text **Click these buttons to obtain passwords:**
+[p]password_config set_log_channel 888888888
+
+[p]password_config add_service sample
+[p]password_config set_button_text sample Sample
+[p]password_config set_description sample **Sample Password**
+[p]password_config set_password sample ThisIsAPassword
 ```
 
-### Slash Commands
+Given the above example, when the "Sample" button is pressed, the following ephemeral message will be sent to the user and will only be visible to the user:
 
-Enable the slash commands `/password get` and `/password list`:
-
-1. Run `[p]slash enable password`
-2. Run `[p]slash sync`
-3. Go to **Server Settings** => **Integrations** => **\<your bot name\>** and configure permissions.
-
-The commands under `/password_config` can also be enabled as slash commands, but can be left disabled since they are only used by administrators.
-
-## Usage
-
-Users can get passwords with:
-
-`[p]password get <service_name>`
-
-The service description and password is DMed to the user. If the user does not have DMs allowed, an error message will indicate this.
+> **Sample Password**: `ThisIsAPassword`
 
 # License
 
