@@ -17,7 +17,9 @@ class Proposal(ProposalConfig, ProposalEvents, commands.Cog):
 
     default_config = {
       'proposal_channel': None,
+      'initial_voting_days': 7,
+      'extended_voting_days': 7,
       'quorum': 1
     }
-    self.config = Config.get_conf(self, identifier=458426606406630, force_registration=True)
+    self.config = Config.get_conf(self, identifier = 458426606406630, force_registration = True)
     self.config.register_global(**default_config)

@@ -1,15 +1,42 @@
+from datetime import datetime, timedelta
 from discord import Message, Reaction, Thread, User
+from enum import Enum
 from functools import reduce
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from redbot.core.utils.mod import is_mod_or_superior
+from zoneinfo import ZoneInfo
+
+class DiscordTimestampFormatType(Enum):
+  DEFAULT = None
+  SHORT_TIME = 't'
+  LONG_TIME = 'T'
+  SHORT_DATE = 'd'
+  LONG_DATE = 'D'
+  SHORT_DATE_TIME = 'f'
+  LONG_DATE_TIME = 'F'
+  RELATIVE_TIME = 'R'
 
 class ProposalEvents:
   def __init__(self):
     self.bot: Red
     self.config: Config
 
-  # Event handler when a user adds a reaction
+  @commands.Cog.listener()
+  async def on_thread_create(self, thread: Thread) -> None:
+    if not await self.is_thread_in_proposal_channel(thread):
+      return
+
+    initial_voting_days = await self.config.initial_voting_days()
+    extended_voting_days = await self.config.extended_voting_days()
+    quorum = await self.config.quorum()
+
+    zone_info = ZoneInfo('UTC')
+    extension_date = datetime.now(zone_info) + timedelta(days = initial_voting_days)
+    timestamp = self.datetime_to_discord_timestamp(extension_date, DiscordTimestampFormatType.LONG_DATE_TIME)
+
+    await thread.send(f'**This proposal is now open for voting to staff only.** If this proposal does not get the minimum {quorum} votes for quorum by {timestamp} ({initial_voting_days} days from now), it will automatically be extended by another {extended_voting_days} days.')
+
   @commands.Cog.listener()
   async def on_reaction_add(self, reaction: Reaction, user: User) -> None:
     message = reaction.message
@@ -43,7 +70,6 @@ class ProposalEvents:
     if number_of_votes == quorum:
       await thread.send(f':ballot_box: **This proposal now has the minimum {quorum} votes for quorum.** Please wait for an admin to review this proposal and decide on a final result.')
 
-  # Event handler when a user removes a reaction
   @commands.Cog.listener()
   async def on_reaction_remove(self, reaction: Reaction, user: User) -> None:
     message = reaction.message
@@ -83,12 +109,20 @@ class ProposalEvents:
     message = reaction.message
     thread = message.channel
 
-    forum_channel_id = await self.config.proposal_channel()
-
     return \
       isinstance(thread, Thread) and \
-      thread.parent_id == forum_channel_id and \
+      self.is_thread_in_proposal_channel(thread) and \
       message.id == thread.starter_message.id
+
+  async def is_thread_in_proposal_channel(self, thread: Thread) -> bool:
+    proposal_channel_id = await self.config.proposal_channel()
+    return thread.parent_id == proposal_channel_id
+
+  @staticmethod
+  def datetime_to_discord_timestamp(date: datetime, format_type: DiscordTimestampFormatType = None) -> str:
+    epoch = date.strftime('%s')
+    format = f':{format_type.value}' if format_type.value is not None else ''
+    return f'<t:{epoch}{format}>'
 
   @staticmethod
   def get_total_number_of_reactions(message: Message) -> int:
