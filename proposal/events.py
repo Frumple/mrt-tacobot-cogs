@@ -1,21 +1,13 @@
 from datetime import datetime, timedelta
 from discord import Message, Reaction, Thread, User
-from enum import Enum
+
 from functools import reduce
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from redbot.core.utils.mod import is_mod_or_superior
 from zoneinfo import ZoneInfo
 
-class DiscordTimestampFormatType(Enum):
-  DEFAULT = None
-  SHORT_TIME = 't'
-  LONG_TIME = 'T'
-  SHORT_DATE = 'd'
-  LONG_DATE = 'D'
-  SHORT_DATE_TIME = 'f'
-  LONG_DATE_TIME = 'F'
-  RELATIVE_TIME = 'R'
+from .helpers import DiscordTimestampFormatType, datetime_to_discord_timestamp
 
 class ProposalEvents:
   def __init__(self):
@@ -33,9 +25,15 @@ class ProposalEvents:
 
     zone_info = ZoneInfo('UTC')
     extension_date = datetime.now(zone_info) + timedelta(days = initial_voting_days)
-    timestamp = self.datetime_to_discord_timestamp(extension_date, DiscordTimestampFormatType.LONG_DATE_TIME)
+    extension_timestamp = datetime_to_discord_timestamp(extension_date, DiscordTimestampFormatType.LONG_DATE_TIME)
 
-    await thread.send(f'**This proposal is now open for voting to staff only.** If this proposal does not get the minimum {quorum} votes for quorum by {timestamp} ({initial_voting_days} days from now), it will automatically be extended by another {extended_voting_days} days.')
+    # If the first message in a thread has not been posted yet (because of Discord being slow),
+    # wait until it has been posted.
+    if thread.last_message is None:
+      await self.bot.wait_for('message', check = lambda message: message.channel == thread, timeout = 10)
+
+    await thread.send('**This proposal is now open for voting to staff only.** Staff may vote using the following reactions:\n- :white_check_mark: - Approve the proposal\n- :x: - Reject the proposal\n- :hourglass: - Extend the proposal\n- :calendar: - Defer the proposal to the next GSM')
+    await thread.send(f'If this proposal does not get the minimum {quorum} votes for quorum by {extension_timestamp} ({initial_voting_days} days from now), it will automatically be extended by another {extended_voting_days} days.')
 
   @commands.Cog.listener()
   async def on_reaction_add(self, reaction: Reaction, user: User) -> None:
@@ -115,14 +113,8 @@ class ProposalEvents:
       message.id == thread.starter_message.id
 
   async def is_thread_in_proposal_channel(self, thread: Thread) -> bool:
-    proposal_channel_id = await self.config.proposal_channel()
+    proposal_channel_id = await self.config.proposal_channel_id()
     return thread.parent_id == proposal_channel_id
-
-  @staticmethod
-  def datetime_to_discord_timestamp(date: datetime, format_type: DiscordTimestampFormatType = None) -> str:
-    epoch = date.strftime('%s')
-    format = f':{format_type.value}' if format_type.value is not None else ''
-    return f'<t:{epoch}{format}>'
 
   @staticmethod
   def get_total_number_of_reactions(message: Message) -> int:
