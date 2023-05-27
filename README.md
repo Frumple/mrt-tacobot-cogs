@@ -9,12 +9,14 @@ Custom [Red-DiscordBot](https://github.com/Cog-Creators/Red-DiscordBot) cogs for
 # Installation
 
 With your Red-DiscordBot installed on your Discord server, run the following command where `[p]` is your bot's prefix:
-
-`[p]repo add mrt-tacobot-cogs https://github.com/Frumple/mrt-tacobot-cogs`
+```
+[p]repo add mrt-tacobot-cogs https://github.com/Frumple/mrt-tacobot-cogs
+```
 
 After agreeing to add a 3rd-party repository, install one of the cogs below with:
-
-`[p]cog install mrt-tacobot-cogs <name of cog>`
+```
+[p]cog install mrt-tacobot-cogs <name of cog>
+```
 
 # Cogs
 
@@ -22,28 +24,28 @@ After agreeing to add a 3rd-party repository, install one of the cogs below with
 |-----------------------|-------------------------------------------------------------------------|
 | [Dynmap](#dynmap)     | Runs Dynmap radius renders on a Minecraft server hosted on Pterodactyl. |
 | [Password](#password) | Buttons that provide access passwords to external services.             |
+| [Proposal](#proposal) | Manages a forum channel for user-submitted proposals and staff voting.  |
 
 # Dynmap
 
-## Setup
-
 This cog allows users to run [Dynmap](https://github.com/webbukkit/dynmap) radius renders on a Minecraft server hosted on [Pterodactyl](https://pterodactyl.io/).
+
+## Setup
 
 In Pterodactyl, you will need a user with **console permissions** to the Minecraft server you want renders on. In this user's settings, go to **API Credentials** and create a new **API Key** (leave allowed IPs blank). Copy down this key.
 
 You will also need the **Pterodactyl Host URL** (The URL when you log into the Pterodactyl panel up to the first slash), and the **Pterodactyl Server UUID** (seen under "Servers" in the admin panel).
 
 In the Dynmap cog, set up your Pterodactyl credentials with the following commands:
-
-`[p]dynmap_config pterodactyl_key <PUT API KEY HERE>`
-
-`[p]dynmap_config pterodactyl_host <PUT HOST URL HERE>`
-
-`[p]dynmap_config pterodactyl_id <PUT SERVER UUID HERE>`
-
+```
+[p]dynmap_config pterodactyl_key <PUT API KEY HERE>
+[p]dynmap_config pterodactyl_host <PUT HOST URL HERE>
+[p]dynmap_config pterodactyl_id <PUT SERVER UUID HERE>
+```
 You will also need to provide the **Dynmap Host URL** (i.e. `https://dynmap.server.com` or `https://server.com:8123`) so that users can click the embed link directly to their render location on Dynmap:
-
-`[p]dynmap_config web_host <PUT DYNMAP URL HERE>`
+```
+[p]dynmap_config web_host <PUT DYNMAP URL HERE>
+```
 
 ## Configuration
 
@@ -95,20 +97,24 @@ After updating these constants, you will need to restart the bot and run `[p]sla
 ### Starting renders
 
 Start a dynmap radius render with the specified X and Z coordinates, using the default radius:
-
-`[p]dynmap render <X> <Z>`
+```
+[p]dynmap render <X> <Z>
+```
 
 Start a dynmap radius render with the specified X and Z coordinates, and specified radius:
-
-`[p]dynmap render <X> <Z> <radius>`
+```
+[p]dynmap render <X> <Z> <radius>
+```
 
 Start a dynmap radius render centred on a player currently on the Minecraft server, using the default radius:
-
-`[p]dynmap player <player_name>`
+```
+[p]dynmap player <player_name>
+```
 
 Start a dynmap radius render centred on a player currently on the Minecraft server, using a specified radius:
-
-`[p]dynmap player <player_name> <radius>`
+```
+[p]dynmap player <player_name> <radius>
+```
 
 ### Queueing renders
 
@@ -131,42 +137,51 @@ On the MRT Server, this cog is used to control access to our Mumble, OpenTTD, an
 Create a new, empty, read-only Discord channel where your "password buttons" will reside.
 
 Register this channel in the cog:
-
-`[p]password_config set_message_channel <channel_id>`
+```
+[p]password_config set_message_channel <channel_id>
+```
 
 Set the text of the message that will contain the buttons (can include Markdown formatting):
-
-`[p]password_config set_message_text <message_text>`
+```
+[p]password_config set_message_text <message_text>
+```
 
 Optionally, you may specify a separate channel where a log message will be sent each time a user clicks one of the buttons:
-
-`[p]password_config set_log_channel <channel_id>`
+```
+[p]password_config set_log_channel <channel_id>
+```
 
 To stop sending log messages, run:
-
-`[p]password_config set_log_channel`
+```
+[p]password_config set_log_channel
+```
 
 ### Services and Passwords
 
 Add a new service:
-
-`[p]password_config add_service <service_name>`
+```
+[p]password_config add_service <service_name>
+```
 
 Remove an existing service:
-
-`[p]password_config remove_service <service_name>`
+```
+[p]password_config remove_service <service_name>
+```
 
 Set the button text for a service:
-
-`[p]password_config set_button_text <service_name> <button_text>`
+```
+[p]password_config set_button_text <service_name> <button_text>
+```
 
 Set the description for a service (can include Markdown formatting):
-
-`[p]password_config set_description <service_name> <description>`
+```
+[p]password_config set_description <service_name> <description>
+```
 
 Set the password for a service:
-
-`[p]password_config set_password <service_name> <password>`
+```
+[p]password_config set_password <service_name> <password>
+```
 
 ### Example
 ```
@@ -183,6 +198,76 @@ Set the password for a service:
 Given the above example, when the "Sample" button is pressed, the following ephemeral message will be sent to the user and will only be visible to the user:
 
 > **Sample Password**: `ThisIsAPassword`
+
+# Proposal
+
+This cog manages a Discord forum channel intended for user-submitted proposals and staff voting.
+
+Users submit proposals by creating a new post in the designated forum channel. Staff members (Discord moderators or above) will then vote on these proposals by adding these specific reactions to the first message in the post:
+
+| Vote    | Emoji              | Description |
+| ------- | ------------------ | ----------- |
+| Approve | :white_check_mark: | Approve the proposal.                                       |
+| Reject  | :x:                | Reject the proposal.                                        |
+| Extend  | :hourglass:        | Extend the voting period of the proposal.                   |
+| Defer   | :calendar:         | Defer the proposal to the next General Staff Meeting (GSM). |
+
+When a proposal has received the minimum number of votes for quorum, an administrator will review the proposal and make a final decision based on the votes tallied.
+
+If a proposal has not reached quorum by the end of the initial voting period (default: 7 days), the proposal will automatically be :hourglass: **extended**.
+
+If an extended proposal reaches the end of its extended voting period (default: also 7 days), the proposal will automatically be :calendar: **deferred to the next GSM**.
+
+This cog will make announcements in the proposal post whenever the following events occur:
+- The proposal is first created
+- A staff member has voted or rescinded a vote
+- The proposal has reached or lost quorum
+- An administrator has run a command to approve, reject, extend, or defer a proposal
+- The proposal has reached the end of the initial voting period and is automatically extended
+- The proposal has reached the end of the extended voting period and is automatically deferred
+
+The bot will also ensure that only staff can add reactions to the first message of a proposal post. The bot will remove any reactions made by non-staff, and it will also DM the user reminding them not to add reactions there.
+
+## Setup
+
+Set the forum channel where proposals will be made:
+```
+[p]proposal_config channel <channel_id>
+```
+
+Set the quorum (minimum number of votes for approval, rejection, etc.):
+```
+[p]proposal_config quorum <number_of_votes>
+```
+
+Set tags for approved, rejected, extended, and deferred proposal states. You may need to get the tag IDs first with `[p] proposal_config list_tags`:
+```
+[p]proposal_config approved_tag <tag_id>
+[p]proposal_config rejected_tag <tag_id>
+[p]proposal_config extended_tag <tag_id>
+[p]proposal_config deferred_tag <tag_id>
+```
+
+Set the initial voting period and extended voting period (both in days, default: 7 days):
+```
+[p]proposal_config initial_voting_days <number_of_days>
+[p]proposal_config extended_voting_days <number_of_days>
+```
+
+## Usage
+
+Administrators can run the following commands in a proposal post to approve, reject, extend, or defer it:
+```
+[p]proposal approve
+[p]proposal reject
+[p]proposal extend
+[p]proposal defer
+```
+
+These commands will perform the following tasks on the proposal post:
+- Add the appropriate approved/rejected/extended/deferred tag to the post.
+- Make an announcement in the post and list all votes made at the time the command was run.
+- Close and lock the post.
 
 # License
 
