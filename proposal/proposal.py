@@ -1,5 +1,4 @@
 from datetime import timedelta
-from discord import Thread
 from redbot.core import Config, app_commands, commands, checks
 from redbot.core.bot import Red
 

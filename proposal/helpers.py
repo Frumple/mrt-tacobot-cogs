@@ -1,7 +1,7 @@
 from datetime import datetime
-from discord import ForumTag, Thread
+from discord import ForumChannel, ForumTag, Thread
 from enum import Enum
-from redbot.core import Config
+from redbot.core import Config, commands
 from typing import Sequence
 
 class DiscordTimestampFormatType(Enum):
@@ -32,6 +32,14 @@ def get_forum_tag(tags: Sequence[ForumTag], tag_id: int) -> ForumTag:
       return tag
   return None
 
+async def get_proposal_channel(cog: commands.Cog) -> ForumChannel:
+  proposal_channel_id = await cog.config.proposal_channel_id()
+  return await cog.bot.fetch_channel(proposal_channel_id)
+
+async def get_proposal_channel_tag(cog: commands.Cog, tag_id: int) -> ForumTag:
+  proposal_channel = await get_proposal_channel(cog)
+  return get_forum_tag(proposal_channel.available_tags, tag_id)
+
 async def set_proposal_state(config: Config, thread: Thread, state: ProposalState) -> None:
   proposal_channel_tags = thread.parent.available_tags
 
@@ -56,10 +64,3 @@ async def set_proposal_state(config: Config, thread: Thread, state: ProposalStat
       await thread.add_tags(extended_tag)
     case ProposalState.DEFERRED:
       await thread.add_tags(deferred_tag)
-
-def thread_has_tag_ids(thread: Thread, tag_ids: Sequence[int]) -> bool:
-  for thread_tag in thread.applied_tags:
-    if thread_tag.id in tag_ids:
-      return True
-
-  return False

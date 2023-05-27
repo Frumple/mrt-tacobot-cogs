@@ -1,11 +1,12 @@
 from datetime import datetime, time, timedelta
+from discord import Thread
 from discord.ext import tasks
 from redbot.core import Config
 from redbot.core.bot import Red
 from typing import List
 from zoneinfo import ZoneInfo
 
-from .helpers import DiscordTimestampFormatType, ProposalState, datetime_to_discord_timestamp, set_proposal_state, thread_has_tag_ids
+from .helpers import DiscordTimestampFormatType, ProposalState, datetime_to_discord_timestamp, get_proposal_channel, set_proposal_state
 
 def every_hour() -> List[datetime]:
   times = []
@@ -25,12 +26,7 @@ class ProposalTasks:
 
     print(f'Checking for expired proposals at: {now}', flush = True)
 
-    proposal_channel_id = await self.config.proposal_channel_id()
-    if proposal_channel_id is None:
-      print('Proposal channel is not defined.', flush = True)
-      return
-
-    proposal_channel = await self.bot.fetch_channel(proposal_channel_id)
+    proposal_channel = await get_proposal_channel()
 
     approved_tag_id = await self.config.approved_tag_id()
     rejected_tag_id = await self.config.rejected_tag_id()
@@ -52,7 +48,7 @@ class ProposalTasks:
 
         # If the thread has no status tags and the initial voting period has passed,
         # add the extended tag to the thread and announce the extension.
-        if not thread_has_tag_ids(thread, status_tag_ids):
+        if not self.thread_has_tag_ids(thread, status_tag_ids):
           quorum = await self.config.quorum()
           final_timestamp = datetime_to_discord_timestamp(final_date, DiscordTimestampFormatType.LONG_DATE_TIME)
 
@@ -62,7 +58,7 @@ class ProposalTasks:
 
         # Otherwise if the thread has already been extended and the extended voting period has passed,
         # add the deferred tag and announce that an admin will make a final decision on the proposal soon.
-        elif thread_has_tag_ids(thread, [extended_tag_id]):
+        elif self.thread_has_tag_ids(thread, [extended_tag_id]):
           if now >= final_date:
             await set_proposal_state(self.config, thread, ProposalState.DEFERRED)
             await thread.send(f':calendar: **This proposal has been automatically deferred** to the next GSM after reaching the end of the extended voting period. Please wait for an admin to review this proposal and finalize this deferral.')
@@ -70,3 +66,11 @@ class ProposalTasks:
   @check_for_expired_proposals.before_loop
   async def before_check_proposals(self) -> None:
     await self.bot.wait_until_ready()
+
+  @staticmethod
+  def thread_has_tag_ids(thread: Thread, tag_ids: List[int]) -> bool:
+    for thread_tag in thread.applied_tags:
+      if thread_tag.id in tag_ids:
+        return True
+
+    return False

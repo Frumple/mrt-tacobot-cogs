@@ -1,8 +1,8 @@
-from discord import ForumChannel, ForumTag, NotFound
+from discord import ForumChannel
 from redbot.core import Config, app_commands, commands, checks
 from redbot.core.bot import Red
 
-from .helpers import get_forum_tag
+from .helpers import get_proposal_channel, get_proposal_channel_tag
 
 class ProposalConfig:
   def __init__(self):
@@ -60,7 +60,7 @@ class ProposalConfig:
   @app_commands.checks.has_permissions(administrator=True)
   async def proposal_config_approved_tag(self, ctx: commands.Context, tag_id: int) -> None:
     """Sets the forum tag that indicates a proposal has been approved."""
-    tag = self.get_proposal_channel_tag(tag_id)
+    tag = await get_proposal_channel_tag(self, tag_id)
     await self.config.approved_tag_id.set(tag_id)
     await ctx.send(f'Approved tag has been set to: {tag.emoji} {tag.name}')
 
@@ -70,7 +70,7 @@ class ProposalConfig:
   @app_commands.checks.has_permissions(administrator=True)
   async def proposal_config_rejected_tag(self, ctx: commands.Context, tag_id: int) -> None:
     """Sets the forum tag that indicates a proposal has been rejected."""
-    tag = self.get_proposal_channel_tag(tag_id)
+    tag = await get_proposal_channel_tag(self, tag_id)
     await self.config.rejected_tag_id.set(tag_id)
     await ctx.send(f'Rejected tag has been set to: {tag.emoji} {tag.name}')
 
@@ -80,7 +80,7 @@ class ProposalConfig:
   @app_commands.checks.has_permissions(administrator=True)
   async def proposal_config_extended_tag(self, ctx: commands.Context, tag_id: int) -> None:
     """Sets the forum tag that indicates a proposal has been extended."""
-    tag = self.get_proposal_channel_tag(tag_id)
+    tag = await get_proposal_channel_tag(self, tag_id)
     await self.config.extended_tag_id.set(tag_id)
     await ctx.send(f'Extended tag has been set to: {tag.emoji} {tag.name}')
 
@@ -90,7 +90,7 @@ class ProposalConfig:
   @app_commands.checks.has_permissions(administrator=True)
   async def proposal_config_deferred_tag(self, ctx: commands.Context, tag_id: int) -> None:
     """Sets the forum tag that indicates a proposal has been deferred."""
-    tag = self.get_proposal_channel_tag(tag_id)
+    tag = await get_proposal_channel_tag(self, tag_id)
     await self.config.deferred_tag_id.set(tag_id)
     await ctx.send(f'Deferred tag has been set to: {tag.emoji} {tag.name}')
 
@@ -100,14 +100,8 @@ class ProposalConfig:
   @app_commands.checks.has_permissions(administrator=True)
   async def proposal_config_list_all_tags(self, ctx: commands.Context) -> None:
     """Lists all forum tags and IDs from the proposal channel."""
-    proposal_channel = await self.get_proposal_channel()
+    proposal_channel = await get_proposal_channel(self)
+    content = f'**Available tags in {proposal_channel.mention}:\n**'
     for tag in proposal_channel.available_tags:
-      await ctx.send(f'Tag Name: `{tag.name}`, ID: `{tag.id}`, Emoji: {tag.emoji}')
-
-  async def get_proposal_channel(self) -> ForumChannel:
-    proposal_channel_id = await self.config.proposal_channel_id()
-    return await self.bot.fetch_channel(proposal_channel_id)
-
-  async def get_proposal_channel_tag(self, tag_id: int) -> ForumTag:
-    proposal_channel = await self.get_proposal_channel()
-    return get_forum_tag(proposal_channel.available_tags, tag_id)
+      content += f'Tag Name: `{tag.name}`, ID: `{tag.id}`, Emoji: {tag.emoji}\n'
+    await ctx.send(content)
