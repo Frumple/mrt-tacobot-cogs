@@ -109,7 +109,7 @@ class ProposalEvents:
 
     return \
       isinstance(thread, Thread) and \
-      self.is_thread_in_proposal_channel(thread) and \
+      await self.is_thread_in_proposal_channel(thread) and \
       message.id == thread.starter_message.id
 
   async def is_thread_in_proposal_channel(self, thread: Thread) -> bool:
@@ -123,4 +123,4 @@ class ProposalEvents:
 
   @staticmethod
   def get_vote_count_string(number_of_votes: int, quorum: int) -> str:
-    return f'`[{number_of_votes} / {quorum} votes for quorum]`'
+    return f'[{number_of_votes} / {quorum}]'
