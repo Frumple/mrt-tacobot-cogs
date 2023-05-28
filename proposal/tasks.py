@@ -26,7 +26,10 @@ class ProposalTasks:
 
     print(f'Checking for expired proposals at: {now}', flush = True)
 
-    proposal_channel = await get_proposal_channel()
+    proposal_channel = await get_proposal_channel(self)
+
+    initial_voting_days = await self.config.initial_voting_days()
+    extended_voting_days = await self.config.extended_voting_days()
 
     approved_tag_id = await self.config.approved_tag_id()
     rejected_tag_id = await self.config.rejected_tag_id()
@@ -38,13 +41,10 @@ class ProposalTasks:
       if not thread.locked:
         print(thread.name, flush = True)
 
-        status_tag_ids = [approved_tag_id, rejected_tag_id, extended_tag_id, deferred_tag_id]
-
-        initial_voting_days = await self.config.initial_voting_days()
-        extended_voting_days = await self.config.extended_voting_days()
-
         extended_date = thread.starter_message.created_at + timedelta(days = initial_voting_days)
         final_date = extended_date + timedelta(days = extended_voting_days)
+
+        status_tag_ids = [approved_tag_id, rejected_tag_id, extended_tag_id, deferred_tag_id]
 
         # If the thread has no status tags and the initial voting period has passed,
         # add the extended tag to the thread and announce the extension.

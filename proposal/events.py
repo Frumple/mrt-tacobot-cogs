@@ -33,7 +33,7 @@ class ProposalEvents:
       await self.bot.wait_for('message', check = lambda message: message.channel == thread, timeout = 10)
 
     await thread.send('**This proposal is now open for voting to staff only.** Staff may vote using the following reactions:\n- :white_check_mark: - Approve the proposal\n- :x: - Reject the proposal\n- :hourglass: - Extend the proposal\n- :calendar: - Defer the proposal to the next GSM')
-    await thread.send(f'If this proposal does not get the minimum {quorum} votes for quorum by {extension_timestamp} ({initial_voting_days} days from now), it will automatically be extended by another {extended_voting_days} days.')
+    await thread.send(f'If this proposal does not get the minimum {quorum} votes for quorum by {extension_timestamp} ({initial_voting_days} days from now), it will be automatically extended by another {extended_voting_days} days.')
 
   @commands.Cog.listener()
   async def on_reaction_add(self, reaction: Reaction, user: User) -> None:
