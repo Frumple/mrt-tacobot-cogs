@@ -95,8 +95,6 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
 
     await set_proposal_state(self.config, ctx.channel, ProposalState.EXTENDED)
     await ctx.send(f':hourglass: **This proposal has been extended until {final_timestamp}.**')
-    await self.report_votes(ctx)
-    await ctx.channel.edit(archived = True, locked = True)
 
   @proposal.command(name='defer')
   @checks.admin_or_permissions()
