@@ -7,7 +7,7 @@ from redbot.core.bot import Red
 from redbot.core.utils.mod import is_mod_or_superior
 from zoneinfo import ZoneInfo
 
-from .helpers import DiscordTimestampFormatType, datetime_to_discord_timestamp
+from .helpers import DiscordTimestampFormatType, datetime_to_discord_timestamp, get_thread_starter_message
 
 class ProposalEvents:
   def __init__(self):
@@ -106,11 +106,12 @@ class ProposalEvents:
   async def is_proposal_vote_reaction(self, reaction: Reaction) -> bool:
     message = reaction.message
     thread = message.channel
+    starter_message = await get_thread_starter_message(thread)
 
     return \
       isinstance(thread, Thread) and \
       await self.is_thread_in_proposal_channel(thread) and \
-      message.id == thread.starter_message.id
+      message.id == starter_message.id
 
   async def is_thread_in_proposal_channel(self, thread: Thread) -> bool:
     proposal_channel_id = await self.config.proposal_channel_id()

@@ -5,7 +5,7 @@ from redbot.core.bot import Red
 from .config import ProposalConfig
 from .events import ProposalEvents
 from .tasks import ProposalTasks
-from .helpers import DiscordTimestampFormatType, ProposalState, datetime_to_discord_timestamp, set_proposal_state
+from .helpers import DiscordTimestampFormatType, ProposalState, datetime_to_discord_timestamp, get_thread_starter_message, set_proposal_state
 
 class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
   """Facilitates staff-only voting in a Discord forum channel."""
@@ -88,7 +88,9 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
     initial_voting_days = await self.config.initial_voting_days()
     extended_voting_days = await self.config.extended_voting_days()
 
-    final_date = ctx.channel.starter_message.created_at + timedelta(days = initial_voting_days) + timedelta(days = extended_voting_days)
+    starter_message = await get_thread_starter_message(ctx.channel)
+
+    final_date = starter_message.created_at + timedelta(days = initial_voting_days) + timedelta(days = extended_voting_days)
     final_timestamp = datetime_to_discord_timestamp(final_date, DiscordTimestampFormatType.LONG_DATE_TIME)
 
     await set_proposal_state(self.config, ctx.channel, ProposalState.EXTENDED)
@@ -111,10 +113,10 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
     await self.report_votes(ctx)
 
   async def report_votes(self, ctx: commands.Context) -> None:
-    reactions = ctx.channel.starter_message.reactions
+    starter_message = await get_thread_starter_message(ctx.channel)
     text = '**Vote Summary:**\n\n'
 
-    for reaction in reactions:
+    for reaction in starter_message.reactions:
       header = None
 
       match reaction.emoji:

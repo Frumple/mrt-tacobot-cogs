@@ -6,7 +6,7 @@ from redbot.core.bot import Red
 from typing import List
 from zoneinfo import ZoneInfo
 
-from .helpers import DiscordTimestampFormatType, ProposalState, datetime_to_discord_timestamp, get_proposal_channel, set_proposal_state
+from .helpers import DiscordTimestampFormatType, ProposalState, datetime_to_discord_timestamp, get_proposal_channel, get_thread_starter_message, set_proposal_state
 
 def every_hour() -> List[datetime]:
   times = []
@@ -41,7 +41,9 @@ class ProposalTasks:
       if not thread.locked:
         print(thread.name, flush = True)
 
-        extended_date = thread.starter_message.created_at + timedelta(days = initial_voting_days)
+        starter_message = await get_thread_starter_message(thread)
+
+        extended_date = starter_message.created_at + timedelta(days = initial_voting_days)
         final_date = extended_date + timedelta(days = extended_voting_days)
 
         status_tag_ids = [approved_tag_id, rejected_tag_id, extended_tag_id, deferred_tag_id]

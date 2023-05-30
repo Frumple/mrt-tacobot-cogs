@@ -1,5 +1,5 @@
 from datetime import datetime
-from discord import ForumChannel, ForumTag, Thread
+from discord import ForumChannel, ForumTag, Message, Thread
 from enum import Enum
 from redbot.core import Config, commands
 from typing import Sequence
@@ -39,6 +39,13 @@ async def get_proposal_channel(cog: commands.Cog) -> ForumChannel:
 async def get_proposal_channel_tag(cog: commands.Cog, tag_id: int) -> ForumTag:
   proposal_channel = await get_proposal_channel(cog)
   return get_forum_tag(proposal_channel.available_tags, tag_id)
+
+async def get_thread_starter_message(thread: Thread) -> Message:
+  if thread.starter_message is not None:
+    return thread.starter_message
+
+  async for message in thread.history(limit = 1, oldest_first = True):
+    return message
 
 async def set_proposal_state(config: Config, thread: Thread, state: ProposalState) -> None:
   proposal_channel_tags = thread.parent.available_tags
