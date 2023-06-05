@@ -6,9 +6,11 @@ from redbot.core.bot import Red
 
 class PasswordButton(Button):
   def __init__(self, service_name: str, service: dict, log_channel: TextChannel = None):
+    # Setting the custom_id to a unique value ensures the view is persistent
     super().__init__(
       style = ButtonStyle.primary,
-      label = service['button_text']
+      label = service['button_text'],
+      custom_id = service_name
     )
     self.service_name = service_name
     self.service = service
@@ -28,6 +30,7 @@ class PasswordButton(Button):
 
 class PasswordView(View):
   def __init__(self, config: Config, log_channel: TextChannel = None):
+    # Setting the timeout to None ensures the view is persistent
     super().__init__(
       timeout = None
     )
