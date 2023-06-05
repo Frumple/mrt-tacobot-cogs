@@ -95,6 +95,7 @@ class PasswordConfig:
   @app_commands.checks.has_permissions(administrator=True)
   async def password_config_add_service(self, ctx: commands.Context, service_name: str) -> None:
     """Adds a new service."""
+    success = False
     async with self.config.services() as services:
       if service_name not in services:
         services[service_name] = {
@@ -103,9 +104,11 @@ class PasswordConfig:
           'password': ""
         }
         await ctx.send(f'Service `{service_name}` added.')
-        await self.password_config_update(ctx)
+        success = True
       else:
         await ctx.send(f'Service `{service_name}` already exists.')
+    if success:
+      await self.password_config_update(ctx)
 
   @password_config.command(name="remove_service")
   @checks.admin_or_permissions()
@@ -113,13 +116,16 @@ class PasswordConfig:
   @app_commands.checks.has_permissions(administrator=True)
   async def password_config_remove_service(self, ctx: commands.Context, service_name: str) -> None:
     """Removes an existing service."""
+    success = False
     async with self.config.services() as services:
       if service_name in services:
         del services[service_name]
         await ctx.send(f'Service `{service_name}` removed.')
-        await self.password_config_update(ctx)
+        success = True
       else:
         await ctx.send(f'Service `{service_name}` does not exist.')
+    if success:
+      await self.password_config_update(ctx)
 
   @password_config.command(name="set_button_text")
   @checks.admin_or_permissions()
@@ -127,6 +133,7 @@ class PasswordConfig:
   @app_commands.checks.has_permissions(administrator=True)
   async def password_config_set_button_text(self, ctx: commands.Context, service_name: str, *, button_text: str) -> None:
     """Sets the button text for the given service."""
+    success = False
     async with self.config.services() as services:
       if service_name in services:
         services[service_name] = {
@@ -135,9 +142,11 @@ class PasswordConfig:
           'password': services[service_name]['password']
         }
         await ctx.send(f'Button text for service `{service_name}` set to: {button_text}.')
-        await self.password_config_update(ctx)
+        success = True
       else:
         await ctx.send(f'Service `{service_name}` does not exist.')
+    if success:
+      await self.password_config_update(ctx)
 
   @password_config.command(name="set_description")
   @checks.admin_or_permissions()
@@ -145,6 +154,7 @@ class PasswordConfig:
   @app_commands.checks.has_permissions(administrator=True)
   async def password_config_set_description(self, ctx: commands.Context, service_name: str, *, description: str) -> None:
     """Sets the description for the given service."""
+    success = False
     async with self.config.services() as services:
       if service_name in services:
         services[service_name] = {
@@ -153,9 +163,11 @@ class PasswordConfig:
           'password': services[service_name]['password']
         }
         await ctx.send(f'Description for service `{service_name}` set to: {description}.')
-        await self.password_config_update(ctx)
+        success = True
       else:
         await ctx.send(f'Service `{service_name}` does not exist.')
+    if success:
+      await self.password_config_update(ctx)
 
   @password_config.command(name="set_password")
   @checks.admin_or_permissions()
@@ -163,6 +175,7 @@ class PasswordConfig:
   @app_commands.checks.has_permissions(administrator=True)
   async def password_config_set_password(self, ctx: commands.Context, service_name: str, password: str) -> None:
     """Sets the password for the given service."""
+    success = False
     async with self.config.services() as services:
       if service_name in services:
         services[service_name] = {
@@ -171,9 +184,11 @@ class PasswordConfig:
           'password': password
         }
         await ctx.send(f'Password for service `{service_name}` set.')
-        await self.password_config_update(ctx)
+        success = True
       else:
         await ctx.send(f'Service `{service_name}` does not exist.')
+    if success:
+      await self.password_config_update(ctx)
 
   @password_config.command(name="update")
   @checks.admin_or_permissions()
