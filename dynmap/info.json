@@ -1,0 +1,12 @@
+{
+  "author": ["Frumple"],
+  "install_msg": "Run `=dynmap_config` to get started.",
+  "name": "Dynmap",
+  "short": "Runs Dynmap radius renders on a Minecraft server hosted on Pterodactyl.",
+  "requirements": [],
+  "description": "Runs Dynmap radius renders on a Minecraft server hosted on Pterodactyl.",
+  "tags": ["dynmap", "minecraft", "pterodactyl", "render"],
+  "min_bot_version": "3.5.2",
+  "min_python_version": [3, 11, 0],
+  "end_user_data_statement": "This cog does not persistently store data or metadata about users."
+}
