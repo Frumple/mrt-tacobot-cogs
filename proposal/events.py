@@ -106,12 +106,11 @@ class ProposalEvents:
   async def is_proposal_vote_reaction(self, reaction: Reaction) -> bool:
     message = reaction.message
     thread = message.channel
-    starter_message = await get_thread_starter_message(thread)
 
     return \
       isinstance(thread, Thread) and \
       await self.is_thread_in_proposal_channel(thread) and \
-      message.id == starter_message.id
+      await message.id == get_thread_starter_message(thread).id
 
   async def is_thread_in_proposal_channel(self, thread: Thread) -> bool:
     proposal_channel_id = await self.config.proposal_channel_id()
