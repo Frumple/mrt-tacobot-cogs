@@ -94,7 +94,7 @@ class Dynmap(DynmapConfig, DynmapEvents, commands.Cog):
       'render_timeout_in_seconds': 600,
       'render_queue': []
     }
-    self.config = Config.get_conf(self, identifier=8373008182, force_registration=True)
+    self.config = Config.get_conf(self, identifier = 394817415689018, force_registration = True)
     self.config.register_global(**default_config)
 
   @commands.hybrid_group(name='dynmap')
