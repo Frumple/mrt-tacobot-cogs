@@ -107,10 +107,12 @@ class ProposalEvents:
     message = reaction.message
     thread = message.channel
 
-    return \
-      isinstance(thread, Thread) and \
-      await self.is_thread_in_proposal_channel(thread) and \
-      await message.id == get_thread_starter_message(thread).id
+    if isinstance(thread, Thread):
+      if await self.is_thread_in_proposal_channel(thread):
+        starter_message = await get_thread_starter_message(thread)
+        return message.id == starter_message.id
+
+    return False
 
   async def is_thread_in_proposal_channel(self, thread: Thread) -> bool:
     proposal_channel_id = await self.config.proposal_channel_id()
