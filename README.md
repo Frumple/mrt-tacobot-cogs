@@ -134,6 +134,8 @@ On the MRT Server, this cog is used to control access to our Mumble, OpenTTD, an
 
 ## Setup
 
+### Mandatory Settings
+
 Create a new, empty, read-only Discord channel where your "password buttons" will reside.
 
 Register this channel in the cog:
@@ -146,7 +148,9 @@ Set the text of the message that will contain the buttons (can include Markdown 
 [p]password_config set_message_text <message_text>
 ```
 
-Optionally, you may specify a separate channel where a log message will be sent each time a user clicks one of the buttons:
+### Optional Settings
+
+You may specify a separate channel where a log message will be sent each time a user clicks one of the buttons:
 ```
 [p]password_config set_log_channel <channel_id>
 ```
@@ -154,6 +158,16 @@ Optionally, you may specify a separate channel where a log message will be sent 
 To stop sending log messages, run:
 ```
 [p]password_config set_log_channel
+```
+
+You may also specify how many seconds a response message (containing the password) should persist after a button is pressed:
+```
+[p]password_config set_response_lifespan <number_of_seconds>
+```
+
+This lifespan can be disabled with:
+```
+[p]password_config set_response_lifespan
 ```
 
 ### Services and Passwords

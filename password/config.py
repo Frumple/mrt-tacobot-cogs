@@ -5,7 +5,7 @@ from redbot.core import Config, app_commands, commands, checks
 from redbot.core.bot import Red
 
 class PasswordButton(Button):
-  def __init__(self, service_name: str, service: dict, log_channel: TextChannel = None):
+  def __init__(self, service_name: str, service: dict, log_channel: TextChannel = None, response_lifespan: int = None):
     # Setting the custom_id to a unique value ensures the view is persistent
     super().__init__(
       style = ButtonStyle.primary,
@@ -15,6 +15,7 @@ class PasswordButton(Button):
     self.service_name = service_name
     self.service = service
     self.log_channel = log_channel
+    self.response_lifespan = response_lifespan
 
   async def callback(self, interaction: Interaction):
     description = self.service['description']
@@ -26,22 +27,23 @@ class PasswordButton(Button):
       await self.log_channel.send(f'{interaction.user.mention} has requested the password for `{self.service_name}`.')
 
     # Send the password only to the user
-    await interaction.response.send_message(text, ephemeral = True)
+    await interaction.response.send_message(text, ephemeral = True, delete_after = self.response_lifespan)
 
 class PasswordView(View):
-  def __init__(self, config: Config, log_channel: TextChannel = None):
+  def __init__(self, config: Config, log_channel: TextChannel = None, response_lifespan: int = None):
     # Setting the timeout to None ensures the view is persistent
     super().__init__(
       timeout = None
     )
     self.config = config
     self.log_channel = log_channel
+    self.response_lifespan = response_lifespan
 
   async def createButtons(self):
     self.clear_items()
     async with self.config.services() as services:
       for service_name, service in services.items():
-        button = PasswordButton(service_name, service, self.log_channel)
+        button = PasswordButton(service_name, service, self.log_channel, self.response_lifespan)
         self.add_item(button)
 
 class PasswordConfig:
@@ -86,10 +88,24 @@ class PasswordConfig:
     """Sets the channel that logs all password retrievals (optional)."""
     if channel is None:
       await self.config.log_channel_id.clear()
-      await ctx.send('Log channel cleared.')
+      await ctx.send('Log channel is now disabled.')
     else:
       await self.config.log_channel_id.set(channel.id)
       await ctx.send(f'Log channel has been set to: {channel.mention}')
+    await self.password_config_update(ctx)
+
+  @password_config.command(name='set_response_lifespan')
+  @checks.admin_or_permissions()
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def password_config_set_response_lifespan(self, ctx: commands.Context, lifespan: int = None) -> None:
+    """Sets the number of seconds a password response message should exist before being automatically deleted."""
+    if lifespan is None:
+      await self.config.response_lifespan.clear()
+      await ctx.send('Response lifespan is now disabled.')
+    else:
+      await self.config.response_lifespan.set(lifespan)
+      await ctx.send(f'Response lifespan has been set to: {lifespan} seconds')
     await self.password_config_update(ctx)
 
   @password_config.command(name="add_service")
@@ -203,6 +219,7 @@ class PasswordConfig:
     message_id = await self.config.message_id()
     message_text = await self.config.message_text()
     log_channel_id = await self.config.log_channel_id()
+    response_lifespan = await self.config.response_lifespan()
 
     if message_channel_id is None:
       await ctx.send('Message channel has not been set. Run `[p]password_config set_message_channel` to set it.')
@@ -214,7 +231,7 @@ class PasswordConfig:
 
     message_channel = self.bot.get_channel(message_channel_id)
 
-    view = PasswordView(self.config, log_channel)
+    view = PasswordView(self.config, log_channel, response_lifespan)
     await view.createButtons()
 
     # If the button message id has not been stored in the cog, create a new message
