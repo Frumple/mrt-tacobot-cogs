@@ -13,7 +13,7 @@ class Password(PasswordConfig, commands.Cog):
       'services': {},
       'message_channel_id': None,
       'message_id': None,
-      'message_text': None,
+      'message_text': '**Click these buttons to obtain passwords to external services:**',
       'log_channel_id': None
     }
     self.config = Config.get_conf(self, identifier = 908331620815439, force_registration = True)
