@@ -199,6 +199,13 @@ Given the above example, when the "Sample" button is pressed, the following ephe
 
 > **Sample Password**: `ThisIsAPassword`
 
+### Updating / Restarting the cog
+
+Whenever the bot or cog is updated/restarted, you will need to run the following command to refresh the password buttons:
+```
+[p]password_config update
+```
+
 # Proposal
 
 This cog manages a Discord forum channel intended for user-submitted proposals and staff voting.
