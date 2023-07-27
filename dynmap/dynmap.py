@@ -1,5 +1,6 @@
 from aiohttp import ClientSession, ClientWebSocketResponse
 from asyncio import sleep
+from dataclasses import dataclass
 from discord import Color, Embed, Interaction, Message, User
 from enum import Enum
 from functools import reduce
@@ -41,6 +42,13 @@ async def radius_autocomplete(interaction: Interaction, current: str) -> List[ap
     app_commands.Choice(name = radius, value = radius)
     for radius in radii if current in radius
   ]
+
+@dataclass
+class DynmapParameters:
+  player: str = None
+  x: int = None
+  z: int = None
+  radius: int = None
 
 class ConsoleResponseResult(Enum):
   SUCCESS = 1
@@ -109,7 +117,8 @@ class Dynmap(DynmapConfig, DynmapEvents, commands.Cog):
   @app_commands.autocomplete(radius = radius_autocomplete)
   async def dynmap_render(self, ctx: commands.Context, x: AppCommandHelpers.get_dimension_range(), z: AppCommandHelpers.get_dimension_range(), radius: AppCommandHelpers.get_radius_range() = None) -> None:
     """Starts a Dynmap radius render centered on the specified coordinates."""
-    await self.run_dynmap_render(ctx, x, z, radius)
+    params = DynmapParameters(x = x, z = z, radius = radius)
+    await self.run_dynmap_render(ctx, params)
 
   @dynmap.command(name='player')
   @app_commands.guild_only()
@@ -117,9 +126,10 @@ class Dynmap(DynmapConfig, DynmapEvents, commands.Cog):
   @app_commands.autocomplete(radius = radius_autocomplete)
   async def dynmap_player(self, ctx: commands.Context, player: str, radius: AppCommandHelpers.get_radius_range() = None) -> None:
     """Starts a Dynmap radius render centred on the specified player."""
-    await self.run_dynmap_render(ctx, player, radius)
+    params = DynmapParameters(player = player, radius = radius)
+    await self.run_dynmap_render(ctx, params)
 
-  async def run_dynmap_render(self, ctx: commands.Context, param1: str | int, param2: int = None, param3: int = None):
+  async def run_dynmap_render(self, ctx: commands.Context, params: DynmapParameters):
     world = await self.config.render_world()
     dimension = await self.config.render_dimension()
     default_radius = await self.config.render_default_radius()
@@ -141,23 +151,14 @@ class Dynmap(DynmapConfig, DynmapEvents, commands.Cog):
         async with session.ws_connect(ws_socket) as ws:
           await self.authenticate_websocket(ctx, ws, ws_token)
 
-          # If the 1st parameter is an integer, treat it as the X coordinate.
-          # The 2nd parameter / Z coordinate must also be specified.
-          if isinstance(param1, int):
-            if param2 is None:
-              raise RenderFailedError('The Z coordinate must be specified.')
+          # If a player name is specified, run "/data get entity" commands to get the current dimension and X,Z coordinates of the player.
+          if params.player is not None:
 
-            x = int(param1)
-            z = param2
-            radius = param3 if param3 is not None else default_radius
+            if ',' in params.player:
+              raise RenderFailedError('Player name must not contain commas.')
+            elif ' ' in params.player:
+              raise RenderFailedError('Player name must not contain spaces.')
 
-          # If the 1st parameter contains any commas, fail the render.
-          elif ',' in param1:
-            raise RenderFailedError('Parameters must not contain commas.')
-
-          # Otherwise, treat the 1st parameter as the player name.
-          # Run "/data get entity" commands to get the current dimension and X,Z coordinates of the player.
-          else:
             player_dimension = await self.get_player_dimension(
               ctx,
               session,
@@ -165,11 +166,11 @@ class Dynmap(DynmapConfig, DynmapEvents, commands.Cog):
               message,
               embed,
               this_render,
-              param1
+              params.player
             )
 
             if player_dimension != dimension:
-              raise RenderFailedError(f'Player `{param1}` must be in world `{world}` to start the render.')
+              raise RenderFailedError(f'Player `{params.player}` must be in world `{world}` to start the render.')
 
             x, z = await self.get_player_coordinates(
               ctx,
@@ -178,9 +179,20 @@ class Dynmap(DynmapConfig, DynmapEvents, commands.Cog):
               message,
               embed,
               this_render,
-              param1
+              params.player
             )
-            radius = param2 if param2 is not None else default_radius
+
+          # Otherwise, parse the provided X and Z parameters.
+          else:
+            if params.x is None:
+              raise RenderFailedError('The X coordinate must be specified.')
+            elif params.z is None:
+              raise RenderFailedError('The Z coordinate must be specified.')
+
+            x = params.x
+            z = params.z
+
+          radius = params.radius if params.radius is not None else default_radius
 
           embed_url = await self.get_embed_url(ctx, x, z, world)
           self.init_embed(ctx, embed, embed_url, x, z, radius)
