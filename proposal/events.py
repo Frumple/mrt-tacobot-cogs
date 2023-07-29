@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from discord import Message, Reaction, Thread, User
+from discord import Message, RawReactionActionEvent, Thread
 
 from functools import reduce
 from redbot.core import Config, commands
@@ -8,6 +8,8 @@ from redbot.core.utils.mod import is_mod_or_superior
 from zoneinfo import ZoneInfo
 
 from .helpers import DiscordTimestampFormatType, datetime_to_discord_timestamp, get_thread_starter_message
+
+import discord
 
 class ProposalEvents:
   def __init__(self):
@@ -36,17 +38,29 @@ class ProposalEvents:
     await thread.send(f'If this proposal does not get the minimum {quorum} votes for quorum by {extension_timestamp} ({initial_voting_days} days from now), it will be automatically extended by another {extended_voting_days} days.')
 
   @commands.Cog.listener()
-  async def on_reaction_add(self, reaction: Reaction, user: User) -> None:
-    message = reaction.message
-    thread = message.channel
+  async def on_raw_reaction_add(self, payload: RawReactionActionEvent) -> None:
+    thread = self.bot.get_channel(payload.channel_id)
+    if thread is None:
+      thread = await self.bot.fetch_channel(payload.channel_id)
 
-    if not await self.is_proposal_vote_reaction(reaction):
+    # Don't process the reaction if the thread is not actually a thread, or if the thread is not in the proposal channel
+    if not isinstance(thread, Thread) or not await self.is_thread_in_proposal_channel(thread):
       return
 
+    starter_message = await get_thread_starter_message(thread)
+    message = await thread.fetch_message(payload.message_id)
+
+    # Don't process the reaction if this is not the thread's first message
+    if message.id != starter_message.id:
+      return
+
+    member = payload.member
+    reaction = discord.utils.get(message.reactions, emoji = payload.emoji.name)
+
     # If the user is not staff, remove the reaction and DM the user reminding them they cannot vote
-    if not await is_mod_or_superior(self.bot, user):
-      await reaction.remove(user)
-      await user.send('Voting on proposals is restricted to staff only. Please do not add reactions to the first message of a proposal.')
+    if not await is_mod_or_superior(self.bot, member):
+      await reaction.remove(member)
+      await member.send('Voting on proposals is restricted to staff only. Please do not add reactions to the first message of a proposal.')
       return
 
     # Otherwise, report the vote
@@ -54,30 +68,45 @@ class ProposalEvents:
     quorum = await self.config.quorum()
     vote_count_string = self.get_vote_count_string(number_of_votes, quorum)
 
-    match reaction.emoji:
+    match str(payload.emoji):
       case self.UNICODE_WHITE_CHECK_MARK:
-        await thread.send(f':white_check_mark: **{user.name}** has voted to **approve** this proposal. {vote_count_string}')
+        await thread.send(f':white_check_mark: **{member.name}** has voted to **approve** this proposal. {vote_count_string}')
       case self.UNICODE_X:
-        await thread.send(f':x: **{user.name}** has voted to **reject** this proposal. {vote_count_string}')
+        await thread.send(f':x: **{member.name}** has voted to **reject** this proposal. {vote_count_string}')
       case self.UNICODE_HOURGLASS:
-        await thread.send(f':hourglass: **{user.name}** has voted to **extend** this proposal. {vote_count_string}')
+        await thread.send(f':hourglass: **{member.name}** has voted to **extend** this proposal. {vote_count_string}')
       case self.UNICODE_CALENDAR:
-        await thread.send(f':calendar: **{user.name}** has voted to **defer** this proposal to the next GSM. {vote_count_string}')
+        await thread.send(f':calendar: **{member.name}** has voted to **defer** this proposal to the next GSM. {vote_count_string}')
 
     # If the proposal has enough votes for quorum, announce it
     if number_of_votes == quorum:
       await thread.send(f':ballot_box: **This proposal now has the minimum {quorum} votes for quorum.** Please wait for an admin to review this proposal and decide on a final result.')
 
   @commands.Cog.listener()
-  async def on_reaction_remove(self, reaction: Reaction, user: User) -> None:
-    message = reaction.message
-    thread = message.channel
+  async def on_raw_reaction_remove(self, payload: RawReactionActionEvent) -> None:
+    thread = self.bot.get_channel(payload.channel_id)
+    if thread is None:
+      thread = await self.bot.fetch_channel(payload.channel_id)
 
-    if not await self.is_proposal_vote_reaction(reaction):
+    # Don't process the reaction if the thread is not actually a thread, or if the thread is not in the proposal channel
+    if not isinstance(thread, Thread) or not await self.is_thread_in_proposal_channel(thread):
       return
 
+    starter_message = await get_thread_starter_message(thread)
+    message = await thread.fetch_message(payload.message_id)
+
+    # Don't process the reaction if this is not the thread's first message
+    if message.id != starter_message.id:
+      return
+
+    guild = self.bot.get_guild(payload.guild_id)
+    if guild is None:
+      guild = self.bot.fetch_guild(payload.guild_id)
+
+    member = await self.bot.get_or_fetch_member(guild, payload.user_id)
+
     # If the user is not staff, do nothing
-    if not await is_mod_or_superior(self.bot, user):
+    if not await is_mod_or_superior(self.bot, member):
       return
 
     # Otherwise, report the removal
@@ -85,34 +114,19 @@ class ProposalEvents:
     quorum = await self.config.quorum()
     vote_count_string = self.get_vote_count_string(number_of_votes, quorum)
 
-    match reaction.emoji:
+    match str(payload.emoji):
       case self.UNICODE_WHITE_CHECK_MARK:
-        await thread.send(f'**{user.name}** has rescinded their vote to **approve** this proposal. {vote_count_string}')
+        await thread.send(f'**{member.name}** has rescinded their vote to **approve** this proposal. {vote_count_string}')
       case self.UNICODE_X:
-        await thread.send(f'**{user.name}** has rescinded their vote to **reject** this proposal. {vote_count_string}')
+        await thread.send(f'**{member.name}** has rescinded their vote to **reject** this proposal. {vote_count_string}')
       case self.UNICODE_HOURGLASS:
-        await thread.send(f'**{user.name}** has rescinded their vote to **extend** this proposal. {vote_count_string}')
+        await thread.send(f'**{member.name}** has rescinded their vote to **extend** this proposal. {vote_count_string}')
       case self.UNICODE_CALENDAR:
-        await thread.send(f'**{user.name}** has rescinded their vote to **defer** this proposal to the next GSM. {vote_count_string}')
+        await thread.send(f'**{member.name}** has rescinded their vote to **defer** this proposal to the next GSM. {vote_count_string}')
 
     # If the proposal has lost quorum, announce it
     if number_of_votes == quorum - 1:
       await thread.send(f'**This proposal no longer has the minimum {quorum} votes for quorum.**')
-
-  # Return true if:
-  # - Reaction is on a thread
-  # - Reaction is on a thread in the configured channel
-  # - Reaction is on the thread's starter message
-  async def is_proposal_vote_reaction(self, reaction: Reaction) -> bool:
-    message = reaction.message
-    thread = message.channel
-
-    if isinstance(thread, Thread):
-      if await self.is_thread_in_proposal_channel(thread):
-        starter_message = await get_thread_starter_message(thread)
-        return message.id == starter_message.id
-
-    return False
 
   async def is_thread_in_proposal_channel(self, thread: Thread) -> bool:
     proposal_channel_id = await self.config.proposal_channel_id()
