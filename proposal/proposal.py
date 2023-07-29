@@ -113,6 +113,7 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
   async def report_votes(self, ctx: commands.Context) -> None:
     starter_message = await get_thread_starter_message(ctx.channel)
     text = '**Vote Summary:**\n\n'
+    has_votes = False
 
     for reaction in starter_message.reactions:
       header = None
@@ -128,10 +129,14 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
           header = f':calendar: **Defer ({reaction.count})**'
 
       if header is not None:
+        has_votes = True
         users = [user async for user in reaction.users()]
         user_names = map(lambda u: f'- {u.display_name}', users)
         user_text = "\n".join(user_names)
 
         text += f'{header}\n{user_text}\n\n'
+
+    if not has_votes:
+      text += '- No votes recorded.'
 
     await ctx.send(text)
