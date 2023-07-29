@@ -24,8 +24,6 @@ class ProposalTasks:
     zone_info = ZoneInfo('UTC')
     now = datetime.now(zone_info)
 
-    print(f'Checking for expired proposals at: {now}', flush = True)
-
     proposal_channel = await get_proposal_channel(self)
 
     initial_voting_days = await self.config.initial_voting_days()
@@ -39,8 +37,6 @@ class ProposalTasks:
     # Iterate through all open and unlocked posts
     for thread in proposal_channel.threads:
       if not thread.locked:
-        print(thread.name, flush = True)
-
         starter_message = await get_thread_starter_message(thread)
 
         extended_date = starter_message.created_at + timedelta(days = initial_voting_days)
