@@ -68,15 +68,15 @@ class ProposalEvents:
     quorum = await self.config.quorum()
     vote_count_string = self.get_vote_count_string(number_of_votes, quorum)
 
-    match str(payload.emoji):
+    match payload.emoji.name:
       case self.UNICODE_WHITE_CHECK_MARK:
-        await thread.send(f':white_check_mark: **{member.name}** has voted to **approve** this proposal. {vote_count_string}')
+        await thread.send(f':white_check_mark: **{member.display_name}** has voted to **approve** this proposal. {vote_count_string}')
       case self.UNICODE_X:
-        await thread.send(f':x: **{member.name}** has voted to **reject** this proposal. {vote_count_string}')
+        await thread.send(f':x: **{member.display_name}** has voted to **reject** this proposal. {vote_count_string}')
       case self.UNICODE_HOURGLASS:
-        await thread.send(f':hourglass: **{member.name}** has voted to **extend** this proposal. {vote_count_string}')
+        await thread.send(f':hourglass: **{member.display_name}** has voted to **extend** this proposal. {vote_count_string}')
       case self.UNICODE_CALENDAR:
-        await thread.send(f':calendar: **{member.name}** has voted to **defer** this proposal to the next GSM. {vote_count_string}')
+        await thread.send(f':calendar: **{member.display_name}** has voted to **defer** this proposal to the next GSM. {vote_count_string}')
 
     # If the proposal has enough votes for quorum, announce it
     if number_of_votes == quorum:
@@ -114,15 +114,15 @@ class ProposalEvents:
     quorum = await self.config.quorum()
     vote_count_string = self.get_vote_count_string(number_of_votes, quorum)
 
-    match str(payload.emoji):
+    match payload.emoji.name:
       case self.UNICODE_WHITE_CHECK_MARK:
-        await thread.send(f'**{member.name}** has rescinded their vote to **approve** this proposal. {vote_count_string}')
+        await thread.send(f'**{member.display_name}** has rescinded their vote to **approve** this proposal. {vote_count_string}')
       case self.UNICODE_X:
-        await thread.send(f'**{member.name}** has rescinded their vote to **reject** this proposal. {vote_count_string}')
+        await thread.send(f'**{member.display_name}** has rescinded their vote to **reject** this proposal. {vote_count_string}')
       case self.UNICODE_HOURGLASS:
-        await thread.send(f'**{member.name}** has rescinded their vote to **extend** this proposal. {vote_count_string}')
+        await thread.send(f'**{member.display_name}** has rescinded their vote to **extend** this proposal. {vote_count_string}')
       case self.UNICODE_CALENDAR:
-        await thread.send(f'**{member.name}** has rescinded their vote to **defer** this proposal to the next GSM. {vote_count_string}')
+        await thread.send(f'**{member.display_name}** has rescinded their vote to **defer** this proposal to the next GSM. {vote_count_string}')
 
     # If the proposal has lost quorum, announce it
     if number_of_votes == quorum - 1:
