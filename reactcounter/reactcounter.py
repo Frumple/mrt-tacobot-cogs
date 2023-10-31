@@ -69,6 +69,9 @@ class ReactCounter(commands.Cog):
       print(thread.name, flush=True)
 
       starter_message = await get_thread_starter_message(thread)
+      if starter_message is None:
+        continue
+
       for reaction in starter_message.reactions:
         users = [user async for user in reaction.users()]
         for user in users:
