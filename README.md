@@ -287,8 +287,8 @@ Administrators can run the following commands in a proposal post to approve, rej
 
 These commands will perform the following tasks on the proposal post:
 - Add the appropriate approved/rejected/extended/deferred tag to the post.
-- Make an announcement in the post and list all votes made at the time the command was run.
-- Close and lock the post.
+- Make an announcement in the post and list all votes made at the time the command was run (except for `[p]proposal extend`).
+- Close and lock the post (except for `[p]proposal extend`).
 
 # License
 

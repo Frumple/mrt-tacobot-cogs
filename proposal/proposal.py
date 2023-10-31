@@ -109,6 +109,7 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
     await set_proposal_state(self.config, ctx.channel, ProposalState.DEFERRED)
     await ctx.send(f':hourglass: **This proposal has been deferred to the next GSM.**')
     await self.report_votes(ctx)
+    await ctx.channel.edit(archived = True, locked = True)
 
   async def report_votes(self, ctx: commands.Context) -> None:
     starter_message = await get_thread_starter_message(ctx.channel)
