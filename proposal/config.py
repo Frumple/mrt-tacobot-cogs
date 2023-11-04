@@ -1,4 +1,4 @@
-from discord import ForumChannel
+from discord import ForumChannel, TextChannel
 from redbot.core import Config, app_commands, commands, checks
 from redbot.core.bot import Red
 
@@ -18,14 +18,27 @@ class ProposalConfig:
     if ctx.invoked_subcommand is None:
       pass
 
-  @proposal_config.command(name='channel')
+  @proposal_config.command(name='proposal_channel')
   @checks.admin_or_permissions()
   @app_commands.default_permissions(administrator=True)
   @app_commands.checks.has_permissions(administrator=True)
-  async def proposal_config_channel(self, ctx: commands.Context, channel: ForumChannel) -> None:
+  async def proposal_config_proposal_channel(self, ctx: commands.Context, channel: ForumChannel) -> None:
     """Sets the forum channel that will be monitored for proposals."""
     await self.config.proposal_channel_id.set(channel.id)
-    await ctx.send(f'Channel has been set to: {channel.mention}')
+    await ctx.send(f'Proposal channel has been set to: {channel.mention}')
+
+  @proposal_config.command(name='notification_channel')
+  @checks.admin_or_permissions()
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def proposal_config_notification_channel(self, ctx: commands.Context, channel: TextChannel = None) -> None:
+    """Sets the optional text channel where notifications about proposals are sent."""
+    if channel is None:
+      await self.config.notification_channel_id.clear()
+      await ctx.send('Notification channel is now disabled.')
+    else:
+      await self.config.notification_channel_id.set(channel.id)
+      await ctx.send(f'Notification channel has been set to: {channel.mention}')
 
   @proposal_config.command(name='initial_voting_days')
   @checks.admin_or_permissions()

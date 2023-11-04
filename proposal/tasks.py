@@ -54,12 +54,22 @@ class ProposalTasks:
             await set_proposal_state(self.config, thread, ProposalState.EXTENDED)
             await thread.send(f':hourglass: **This proposal has been automatically extended** by another {extended_voting_days} days to {final_timestamp} since it does not have the minimum {quorum} votes for quorum.')
 
+            notification_channel_id = await self.config.notification_channel_id()
+            if notification_channel_id is not None:
+              notification_channel = await self.bot.fetch_channel(notification_channel_id)
+              await notification_channel.send(f':hourglass: **A proposal has been automatically extended after {initial_voting_days} days. Please review and vote:** {thread.mention}')
+
         # Otherwise if the thread has already been extended and the extended voting period has passed,
         # add the deferred tag and announce that an admin will make a final decision on the proposal soon.
         elif self.thread_has_tag_ids(thread, [extended_tag_id]):
           if now >= final_date:
             await set_proposal_state(self.config, thread, ProposalState.DEFERRED)
             await thread.send(f':calendar: **This proposal has been automatically deferred** to the next GSM after reaching the end of the extended voting period. Please wait for an admin to review this proposal and finalize this deferral.')
+
+            notification_channel_id = await self.config.notification_channel_id()
+            if notification_channel_id is not None:
+              notification_channel = await self.bot.fetch_channel(notification_channel_id)
+              await notification_channel.send(f':calendar: **A proposal has been automatically deferred after {initial_voting_days + extended_voting_days} days. Please wait for an admin to review:** {thread.mention}')
 
   @check_for_expired_proposals.before_loop
   async def before_check_proposals(self) -> None:

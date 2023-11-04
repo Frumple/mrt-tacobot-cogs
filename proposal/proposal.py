@@ -20,6 +20,7 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
 
     default_config = {
       'proposal_channel_id': None,
+      'notification_channel_id': None,
       'initial_voting_days': 7,
       'extended_voting_days': 7,
       'quorum': 1,
