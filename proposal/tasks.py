@@ -26,7 +26,7 @@ class ProposalTasks:
 
     proposal_channel = await get_proposal_channel(self)
 
-    initial_voting_days = await self.config.initial_voting_days()
+    standard_voting_days = await self.config.standard_voting_days()
     extended_voting_days = await self.config.extended_voting_days()
 
     approved_tag_id = await self.config.approved_tag_id()
@@ -39,12 +39,12 @@ class ProposalTasks:
       if not thread.locked:
         starter_message = await get_thread_starter_message(thread)
 
-        extended_date = starter_message.created_at + timedelta(days = initial_voting_days)
+        extended_date = starter_message.created_at + timedelta(days = standard_voting_days)
         final_date = extended_date + timedelta(days = extended_voting_days)
 
         status_tag_ids = [approved_tag_id, rejected_tag_id, extended_tag_id, deferred_tag_id]
 
-        # If the thread has no status tags and the initial voting period has passed,
+        # If the thread has no status tags and the standard voting period has passed,
         # add the extended tag to the thread and announce the extension.
         if not self.thread_has_tag_ids(thread, status_tag_ids):
           quorum = await self.config.quorum()
@@ -57,7 +57,7 @@ class ProposalTasks:
             notification_channel_id = await self.config.notification_channel_id()
             if notification_channel_id is not None:
               notification_channel = await self.bot.fetch_channel(notification_channel_id)
-              await notification_channel.send(f':hourglass: **A proposal has been automatically extended after {initial_voting_days} days. Please review and vote:** {thread.mention}')
+              await notification_channel.send(f':hourglass: **A proposal has been automatically extended after {standard_voting_days} days. Please review and vote:** {thread.mention}')
 
         # Otherwise if the thread has already been extended and the extended voting period has passed,
         # add the deferred tag and announce that an admin will make a final decision on the proposal soon.
@@ -69,7 +69,7 @@ class ProposalTasks:
             notification_channel_id = await self.config.notification_channel_id()
             if notification_channel_id is not None:
               notification_channel = await self.bot.fetch_channel(notification_channel_id)
-              await notification_channel.send(f':calendar: **A proposal has been automatically deferred after {initial_voting_days + extended_voting_days} days. Please wait for an admin to review:** {thread.mention}')
+              await notification_channel.send(f':calendar: **A proposal has been automatically deferred after {standard_voting_days + extended_voting_days} days. Please wait for an admin to review:** {thread.mention}')
 
   @check_for_expired_proposals.before_loop
   async def before_check_proposals(self) -> None:

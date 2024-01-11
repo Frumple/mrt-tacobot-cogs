@@ -21,7 +21,7 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
     default_config = {
       'proposal_channel_id': None,
       'notification_channel_id': None,
-      'initial_voting_days': 7,
+      'standard_voting_days': 7,
       'extended_voting_days': 7,
       'quorum': 1,
       'approved_tag_id': None,
@@ -86,12 +86,12 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
       await ctx.send('This command can only be run in threads of the proposal channel.')
       return
 
-    initial_voting_days = await self.config.initial_voting_days()
+    standard_voting_days = await self.config.standard_voting_days()
     extended_voting_days = await self.config.extended_voting_days()
 
     starter_message = await get_thread_starter_message(ctx.channel)
 
-    final_date = starter_message.created_at + timedelta(days = initial_voting_days) + timedelta(days = extended_voting_days)
+    final_date = starter_message.created_at + timedelta(days = standard_voting_days) + timedelta(days = extended_voting_days)
     final_timestamp = datetime_to_discord_timestamp(final_date, DiscordTimestampFormatType.LONG_DATE_TIME)
 
     await set_proposal_state(self.config, ctx.channel, ProposalState.EXTENDED)

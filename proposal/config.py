@@ -40,14 +40,14 @@ class ProposalConfig:
       await self.config.notification_channel_id.set(channel.id)
       await ctx.send(f'Notification channel has been set to: {channel.mention}')
 
-  @proposal_config.command(name='initial_voting_days')
+  @proposal_config.command(name='standard_voting_days')
   @checks.admin_or_permissions()
   @app_commands.default_permissions(administrator=True)
   @app_commands.checks.has_permissions(administrator=True)
-  async def proposal_config_initial_voting_days(self, ctx: commands.Context, days: commands.Range[int, 1]) -> None:
+  async def proposal_config_standard_voting_days(self, ctx: commands.Context, days: commands.Range[int, 1]) -> None:
     """Sets the number of days before the proposal is extended."""
-    await self.config.initial_voting_days.set(days)
-    await ctx.send(f'Initial voting period in days has been set to: {days}')
+    await self.config.standard_voting_days.set(days)
+    await ctx.send(f'Standard voting period in days has been set to: {days}')
 
   @proposal_config.command(name='extended_voting_days')
   @checks.admin_or_permissions()
