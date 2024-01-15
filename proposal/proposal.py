@@ -1,11 +1,10 @@
-from datetime import timedelta
 from redbot.core import Config, app_commands, commands, checks
 from redbot.core.bot import Red
 
 from .config import ProposalConfig
 from .events import ProposalEvents
 from .tasks import ProposalTasks
-from .helpers import DiscordTimestampFormatType, ProposalState, datetime_to_discord_timestamp, get_thread_starter_message, set_proposal_state
+from .helpers import DiscordTimestampFormatType, ProposalState, datetime_to_discord_timestamp, get_thread_starter_message, get_voting_datetime, set_proposal_state
 
 class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
   """Facilitates staff-only voting in a Discord forum channel."""
@@ -21,8 +20,9 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
     default_config = {
       'proposal_channel_id': None,
       'notification_channel_id': None,
+      'minimum_voting_days': 2,
       'standard_voting_days': 7,
-      'extended_voting_days': 7,
+      'extended_voting_days': 14,
       'quorum': 1,
       'approved_tag_id': None,
       'rejected_tag_id': None,
@@ -32,10 +32,10 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
     self.config = Config.get_conf(self, identifier = 458426606406630, force_registration = True)
     self.config.register_global(**default_config)
 
-    self.check_for_expired_proposals.start()
+    self.check_proposals.start()
 
   def cog_unload(self):
-    self.check_for_expired_proposals.cancel()
+    self.check_proposals.cancel()
 
   @commands.hybrid_group(name='proposal')
   @checks.admin_or_permissions()
@@ -91,7 +91,7 @@ class Proposal(ProposalConfig, ProposalEvents, ProposalTasks, commands.Cog):
 
     starter_message = await get_thread_starter_message(ctx.channel)
 
-    final_date = starter_message.created_at + timedelta(days = standard_voting_days) + timedelta(days = extended_voting_days)
+    final_date = get_voting_datetime(starter_message.created_at, extended_voting_days)
     final_timestamp = datetime_to_discord_timestamp(final_date, DiscordTimestampFormatType.LONG_DATE_TIME)
 
     await set_proposal_state(self.config, ctx.channel, ProposalState.EXTENDED)

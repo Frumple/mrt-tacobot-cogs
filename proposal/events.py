@@ -1,13 +1,12 @@
-from datetime import datetime, timedelta
-from discord import Message, RawReactionActionEvent, Thread
+from datetime import datetime
+from discord import RawReactionActionEvent, Thread
 
-from functools import reduce
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from redbot.core.utils.mod import is_mod_or_superior
 from zoneinfo import ZoneInfo
 
-from .helpers import DiscordTimestampFormatType, datetime_to_discord_timestamp, get_thread_starter_message
+from .helpers import DiscordTimestampFormatType, datetime_to_discord_timestamp, get_thread_starter_message, get_total_number_of_reactions, get_voting_datetime
 
 import discord
 
@@ -22,12 +21,15 @@ class ProposalEvents:
       return
 
     notification_channel_id = await self.config.notification_channel_id()
+    minimum_voting_days = await self.config.minimum_voting_days()
     standard_voting_days = await self.config.standard_voting_days()
     extended_voting_days = await self.config.extended_voting_days()
     quorum = await self.config.quorum()
 
-    zone_info = ZoneInfo('UTC')
-    extension_date = datetime.now(zone_info) + timedelta(days = standard_voting_days)
+    now = datetime.now(ZoneInfo('UTC'))
+    minimum_date = get_voting_datetime(now, minimum_voting_days)
+    minimum_timestamp = datetime_to_discord_timestamp(minimum_date, DiscordTimestampFormatType.LONG_DATE_TIME)
+    extension_date = get_voting_datetime(now, standard_voting_days)
     extension_timestamp = datetime_to_discord_timestamp(extension_date, DiscordTimestampFormatType.LONG_DATE_TIME)
 
     # If the first message in a thread has not been posted yet (because of Discord being slow),
@@ -36,7 +38,8 @@ class ProposalEvents:
       await self.bot.wait_for('message', check = lambda message: message.channel == thread, timeout = 10)
 
     await thread.send(':ballot_box: **This proposal is now open for voting to staff only.** Staff may vote using the following reactions:\n- :white_check_mark: - Approve the proposal\n- :x: - Reject the proposal\n- :hourglass: - Extend the proposal\n- :calendar: - Defer the proposal to the next GSM')
-    await thread.send(f'If this proposal does not get the minimum {quorum} votes for quorum by {extension_timestamp} ({standard_voting_days} days from now), it will be automatically extended by another {extended_voting_days} days.')
+    await thread.send(f'This proposal can be resolved if it satisfies the following requirements:\n- Reach the minimum voting period of {minimum_voting_days} days, after {minimum_timestamp}.\n- Reach the minimum {quorum} votes for quorum.')
+    await thread.send(f'If this proposal has not achieved quorum in {standard_voting_days} days by {extension_timestamp}, it will be automatically extended by another {extended_voting_days - standard_voting_days} days.')
 
     if notification_channel_id is not None:
       notification_channel = await self.bot.fetch_channel(notification_channel_id)
@@ -69,8 +72,14 @@ class ProposalEvents:
       return
 
     # Otherwise, report the vote
-    number_of_votes = self.get_total_number_of_reactions(message)
+    minimum_voting_days = await self.config.minimum_voting_days()
     quorum = await self.config.quorum()
+
+    now = datetime.now(ZoneInfo('UTC'))
+    minimum_date = get_voting_datetime(starter_message.created_at, minimum_voting_days)
+    minimum_timestamp = datetime_to_discord_timestamp(minimum_date, DiscordTimestampFormatType.LONG_DATE_TIME)
+
+    number_of_votes = get_total_number_of_reactions(message)
     vote_count_string = self.get_vote_count_string(number_of_votes, quorum)
 
     match payload.emoji.name:
@@ -85,7 +94,10 @@ class ProposalEvents:
 
     # If the proposal has enough votes for quorum, announce it
     if number_of_votes == quorum:
-      await thread.send(f':ballot_box: **This proposal now has the minimum {quorum} votes for quorum.** Please wait for an admin to review this proposal and decide on a final result.')
+      if now >= minimum_date:
+        await thread.send(f':ballot_box: **This proposal now has the minimum {quorum} votes for quorum.** Please wait for an admin to review this proposal and decide on a final result.')
+      else:
+        await thread.send(f':ballot_box: **This proposal now has the minimum {quorum} votes for quorum.** However, it has not reached the minimum voting period, which ends at {minimum_timestamp}.')
 
   @commands.Cog.listener()
   async def on_raw_reaction_remove(self, payload: RawReactionActionEvent) -> None:
@@ -115,7 +127,7 @@ class ProposalEvents:
       return
 
     # Otherwise, report the removal
-    number_of_votes = self.get_total_number_of_reactions(message)
+    number_of_votes = get_total_number_of_reactions(message)
     quorum = await self.config.quorum()
     vote_count_string = self.get_vote_count_string(number_of_votes, quorum)
 
@@ -136,11 +148,6 @@ class ProposalEvents:
   async def is_thread_in_proposal_channel(self, thread: Thread) -> bool:
     proposal_channel_id = await self.config.proposal_channel_id()
     return thread.parent_id == proposal_channel_id
-
-  @staticmethod
-  def get_total_number_of_reactions(message: Message) -> int:
-    reaction_counts = map(lambda reaction: reaction.count, message.reactions)
-    return reduce(lambda a, b: a + b, reaction_counts, 0)
 
   @staticmethod
   def get_vote_count_string(number_of_votes: int, quorum: int) -> str:

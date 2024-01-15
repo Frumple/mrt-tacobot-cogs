@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from discord import ForumChannel, ForumTag, Message, Thread
 from enum import Enum
+from functools import reduce
 from redbot.core import Config, commands
 from typing import Sequence
 
@@ -46,6 +47,16 @@ async def get_thread_starter_message(thread: Thread) -> Message:
 
   async for message in thread.history(limit = 1, oldest_first = True):
     return message
+
+def get_total_number_of_reactions(message: Message) -> int:
+  reaction_counts = map(lambda reaction: reaction.count, message.reactions)
+  return reduce(lambda a, b: a + b, reaction_counts, 0)
+
+def get_voting_datetime(base_datetime: datetime, number_of_days: int) -> datetime:
+  return round_datetime_to_current_hour(base_datetime + timedelta(days = number_of_days))
+
+def round_datetime_to_current_hour(d: datetime) -> datetime:
+  return d.replace(minute=0, second=0, microsecond=0)
 
 async def set_proposal_state(config: Config, thread: Thread, state: ProposalState) -> None:
   proposal_channel_tags = thread.parent.available_tags

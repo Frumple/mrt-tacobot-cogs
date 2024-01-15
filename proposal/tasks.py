@@ -6,7 +6,7 @@ from redbot.core.bot import Red
 from typing import List
 from zoneinfo import ZoneInfo
 
-from .helpers import DiscordTimestampFormatType, ProposalState, datetime_to_discord_timestamp, get_proposal_channel, get_thread_starter_message, set_proposal_state
+from .helpers import DiscordTimestampFormatType, ProposalState, datetime_to_discord_timestamp, get_proposal_channel, get_thread_starter_message, get_total_number_of_reactions, get_voting_datetime, set_proposal_state
 
 def every_hour() -> List[datetime]:
   times = []
@@ -20,12 +20,14 @@ class ProposalTasks:
     self.config: Config
 
   @tasks.loop(time = every_hour())
-  async def check_for_expired_proposals(self) -> None:
-    zone_info = ZoneInfo('UTC')
-    now = datetime.now(zone_info)
+  async def check_proposals(self) -> None:
+    now = datetime.now(ZoneInfo('UTC'))
 
     proposal_channel = await get_proposal_channel(self)
 
+    quorum = await self.config.quorum()
+
+    minimum_voting_days = await self.config.minimum_voting_days()
     standard_voting_days = await self.config.standard_voting_days()
     extended_voting_days = await self.config.extended_voting_days()
 
@@ -39,10 +41,22 @@ class ProposalTasks:
       if not thread.locked:
         starter_message = await get_thread_starter_message(thread)
 
-        extended_date = starter_message.created_at + timedelta(days = standard_voting_days)
-        final_date = extended_date + timedelta(days = extended_voting_days)
+        minimum_date = get_voting_datetime(starter_message.created_at, minimum_voting_days)
+        extended_date = get_voting_datetime(starter_message.created_at, standard_voting_days)
+        final_date = get_voting_datetime(starter_message.created_at, extended_voting_days)
 
         status_tag_ids = [approved_tag_id, rejected_tag_id, extended_tag_id, deferred_tag_id]
+
+        # TODO: Use a "New" tag to indicate a proposal that hasn't reached the minimum voting period yet.
+
+        # If the thread has reached the minimum voting period,
+        # post a message indicating that the proposal can now be resolved if it has reached quorum.
+        if minimum_date - timedelta(minutes = 1) < now < minimum_date + timedelta(minutes = 1):
+          number_of_votes = get_total_number_of_reactions(starter_message)
+          if number_of_votes >= quorum:
+            await thread.send(f'**This proposal has reached the minimum voting period of {minimum_voting_days} days.** Please wait for an admin to review this proposal and decide on a final result.')
+          else:
+            await thread.send(f'**This proposal has reached the minimum voting period of {minimum_voting_days} days.** However, it has not reached quorum yet and needs {quorum - number_of_votes} more votes.')
 
         # If the thread has no status tags and the standard voting period has passed,
         # add the extended tag to the thread and announce the extension.
@@ -71,7 +85,7 @@ class ProposalTasks:
               notification_channel = await self.bot.fetch_channel(notification_channel_id)
               await notification_channel.send(f':calendar: **A proposal has been automatically deferred after {standard_voting_days + extended_voting_days} days. Please wait for an admin to review:** {thread.mention}')
 
-  @check_for_expired_proposals.before_loop
+  @check_proposals.before_loop
   async def before_check_proposals(self) -> None:
     await self.bot.wait_until_ready()
 

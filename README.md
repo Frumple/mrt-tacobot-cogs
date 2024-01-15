@@ -235,9 +235,9 @@ Users submit proposals by creating a new post in the designated forum channel. S
 
 When a proposal has received the minimum number of votes for quorum, an administrator will review the proposal and make a final decision based on the votes tallied.
 
-If a proposal has not reached quorum by the end of the initial voting period (default: 7 days), the proposal will automatically be :hourglass: **extended**.
+If a proposal has not reached quorum by the end of the standard voting period (default: 7 days since proposal creation), the proposal will automatically be :hourglass: **extended**.
 
-If an extended proposal reaches the end of its extended voting period (default: also 7 days), the proposal will automatically be :calendar: **deferred to the next GSM**.
+If an extended proposal reaches the end of its extended voting period (default: 14 days since proposal creation), the proposal will automatically be :calendar: **deferred to the next GSM**.
 
 This cog will make announcements in the proposal post whenever the following events occur:
 - The proposal is first created
@@ -269,9 +269,10 @@ Set tags for approved, rejected, extended, and deferred proposal states. You may
 [p]proposal_config deferred_tag <tag_id>
 ```
 
-Set the initial voting period and extended voting period (both in days, default: 7 days):
+Set the minimum, standard, and extended voting periods (defaults: minimum = 2 days, standard = 7 days, extended = 14 days, all after the creation date of the proposal)
 ```
-[p]proposal_config initial_voting_days <number_of_days>
+[p]proposal_config minimum_voting_days <number_of_days>
+[p]proposal_config standard_voting_days <number_of_days>
 [p]proposal_config extended_voting_days <number_of_days>
 ```
 

@@ -40,6 +40,15 @@ class ProposalConfig:
       await self.config.notification_channel_id.set(channel.id)
       await ctx.send(f'Notification channel has been set to: {channel.mention}')
 
+  @proposal_config.command(name='minimum_voting_days')
+  @checks.admin_or_permissions()
+  @app_commands.default_permissions(administrator=True)
+  @app_commands.checks.has_permissions(administrator=True)
+  async def proposal_config_minimum_voting_days(self, ctx: commands.Context, days: commands.Range[int, 1]) -> None:
+    """Sets the number of days that must pass before a proposal can be resolved."""
+    await self.config.minimum_voting_days.set(days)
+    await ctx.send(f'Minimum voting period in days has been set to: {days}')
+
   @proposal_config.command(name='standard_voting_days')
   @checks.admin_or_permissions()
   @app_commands.default_permissions(administrator=True)
