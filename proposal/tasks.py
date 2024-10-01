@@ -66,7 +66,7 @@ class ProposalTasks:
 
           if now >= extended_date:
             await set_proposal_state(self.config, thread, ProposalState.EXTENDED)
-            await thread.send(f':hourglass: **This proposal has been automatically extended** by another {extended_voting_days} days to {final_timestamp} since it does not have the minimum {quorum} votes for quorum.')
+            await thread.send(f':hourglass: **This proposal has been automatically extended** by another {extended_voting_days - standard_voting_days} days to {final_timestamp} since it does not have the minimum {quorum} votes for quorum.')
 
             notification_channel_id = await self.config.notification_channel_id()
             if notification_channel_id is not None:
@@ -83,7 +83,7 @@ class ProposalTasks:
             notification_channel_id = await self.config.notification_channel_id()
             if notification_channel_id is not None:
               notification_channel = await self.bot.fetch_channel(notification_channel_id)
-              await notification_channel.send(f':calendar: **A proposal has been automatically deferred after {standard_voting_days + extended_voting_days} days. Please wait for an admin to review:** {thread.mention}')
+              await notification_channel.send(f':calendar: **A proposal has been automatically deferred after {extended_voting_days} days. Please wait for an admin to review:** {thread.mention}')
 
   @check_proposals.before_loop
   async def before_check_proposals(self) -> None:
